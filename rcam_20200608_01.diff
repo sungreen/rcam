@@ -1,0 +1,440 @@
+diff --git a/release/scripts/startup/bl_ui/properties_data_camera.py b/release/scripts/startup/bl_ui/properties_data_camera.py
+index 62dffa3b6ba..370d8a1ca32 100644
+--- a/release/scripts/startup/bl_ui/properties_data_camera.py
++++ b/release/scripts/startup/bl_ui/properties_data_camera.py
+@@ -90,6 +90,7 @@ class DATA_PT_lens(CameraButtonsPanel, Panel):
+             elif cam.lens_unit == 'FOV':
+                 col.prop(cam, "angle")
+             col.prop(cam, "lens_unit")
++            col.prop(cam, "cam_reverse")
+ 
+         elif cam.type == 'ORTHO':
+             col.prop(cam, "ortho_scale")
+diff --git a/source/blender/blenkernel/BKE_camera.h b/source/blender/blenkernel/BKE_camera.h
+index f93003dc423..09a87e69d1d 100644
+--- a/source/blender/blenkernel/BKE_camera.h
++++ b/source/blender/blenkernel/BKE_camera.h
+@@ -61,6 +61,8 @@ typedef struct CameraParams {
+   float lens;
+   float ortho_scale;
+   float zoom;
++  /* SUNGREEN */
++  bool cam_reverse;
+ 
+   float shiftx;
+   float shifty;
+diff --git a/source/blender/blenkernel/intern/camera.c b/source/blender/blenkernel/intern/camera.c
+index 5ec4c84c013..5f6fba61836 100644
+--- a/source/blender/blenkernel/intern/camera.c
++++ b/source/blender/blenkernel/intern/camera.c
+@@ -221,6 +221,8 @@ void BKE_camera_params_from_object(CameraParams *params, const Object *ob)
+     }
+     params->lens = cam->lens;
+     params->ortho_scale = cam->ortho_scale;
++    /* SUNGREEN */
++    params->cam_reverse = cam->cam_reverse;
+ 
+     params->shiftx = cam->shiftx;
+     params->shifty = cam->shifty;
+@@ -370,13 +372,12 @@ void BKE_camera_params_compute_matrix(CameraParams *params)
+                     params->clip_end);
+   }
+   else {
+-    perspective_m4(params->winmat,
+-                   viewplane.xmin,
+-                   viewplane.xmax,
+-                   viewplane.ymin,
+-                   viewplane.ymax,
+-                   params->clip_start,
+-                   params->clip_end);
++    /* SUNGREEN for EEVEE */
++    if(params->cam_reverse){
++        perspective_m4(params->winmat, viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, params->clip_end, params->clip_start);
++    } else {
++        perspective_m4(params->winmat, viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, params->clip_start, params->clip_end);
++    }
+   }
+ }
+ 
+diff --git a/source/blender/blenlib/BLI_math_matrix.h b/source/blender/blenlib/BLI_math_matrix.h
+index 2d11797bc34..29c7a767d2c 100644
+--- a/source/blender/blenlib/BLI_math_matrix.h
++++ b/source/blender/blenlib/BLI_math_matrix.h
+@@ -367,6 +367,8 @@ bool is_zero_m4(const float mat[4][4]);
+ bool equals_m3m3(const float mat1[3][3], const float mat2[3][3]);
+ bool equals_m4m4(const float mat1[4][4], const float mat2[4][4]);
+ 
++/*SUNGREEN*/ bool reverse_perspective(float m[4][4], const float left, const float right, const float bottom, const float top, const float near, const float far);
++
+ /* SpaceTransform helper */
+ typedef struct SpaceTransform {
+   float local2target[4][4];
+diff --git a/source/blender/blenlib/intern/math_geom.c b/source/blender/blenlib/intern/math_geom.c
+index e7c1fc8c2d9..70b53209860 100644
+--- a/source/blender/blenlib/intern/math_geom.c
++++ b/source/blender/blenlib/intern/math_geom.c
+@@ -4718,6 +4718,10 @@ void perspective_m4(float mat[4][4],
+                     const float nearClip,
+                     const float farClip)
+ {
++    /*SUNGREEN*/ if(nearClip>farClip){
++        reverse_perspective(mat,left,right,bottom,top,farClip,nearClip);
++        return;
++    }
+   const float Xdelta = right - left;
+   const float Ydelta = top - bottom;
+   const float Zdelta = farClip - nearClip;
+@@ -4733,7 +4737,7 @@ void perspective_m4(float mat[4][4],
+   mat[2][3] = -1.0f;
+   mat[3][2] = (-2.0f * nearClip * farClip) / Zdelta;
+   mat[0][1] = mat[0][2] = mat[0][3] = mat[1][0] = mat[1][2] = mat[1][3] = mat[3][0] = mat[3][1] =
+-      mat[3][3] = 0.0f;
++  mat[3][3] = 0.0f;
+ }
+ 
+ void perspective_m4_fov(float mat[4][4],
+diff --git a/source/blender/blenlib/intern/math_matrix.c b/source/blender/blenlib/intern/math_matrix.c
+index 9e398239bc7..f7672d7379e 100644
+--- a/source/blender/blenlib/intern/math_matrix.c
++++ b/source/blender/blenlib/intern/math_matrix.c
+@@ -3102,6 +3102,41 @@ void invert_m4_m4_safe(float Ainv[4][4], const float A[4][4])
+   }
+ }
+ 
++/* SUNGREEN WN WF*/
++bool reverse_perspective(float m[4][4], const float left, const float right, const float bottom, const float top, const float near, const float far)
++{
++    float A, B, C, D, Q, WN, WF;
++    WN = 1.0f;
++    WF = (near+far)/far/far;
++
++    C = (WF-WN)/(near-far);
++    D = WF+C*far;
++    A = (WF+WN)/(near-far);
++    B = WF+A*far;
++    Q = 1/(far*near);
++
++    m[0][0] = 2*Q * near / (right - left);
++    m[1][0] = 0.0f;
++    m[2][0] = (right + left) / (right - left);
++    m[3][0] = 0.0f;
++
++    m[0][1] = 0.0f;
++    m[1][1] = 2*Q * near / (top - bottom);
++    m[2][1] = (top + bottom) / (top - bottom);
++    m[3][1] = 0.0f;
++
++    m[0][2] = 0.0f;
++    m[1][2] = 0.0f;
++    m[2][2] = A;
++    m[3][2] = B;
++
++    m[0][3] = 0.0f;
++    m[1][3] = 0.0f;
++    m[2][3] = C;
++    m[3][3] = D;
++    return true;
++}
++
+ /**
+  * #SpaceTransform struct encapsulates all needed data to convert between two coordinate spaces
+  * (where conversion can be represented by a matrix multiplication).
+diff --git a/source/blender/editors/gpencil/gpencil_fill.c b/source/blender/editors/gpencil/gpencil_fill.c
+index d23a914fc49..0d3a4a0fb95 100644
+--- a/source/blender/editors/gpencil/gpencil_fill.c
++++ b/source/blender/editors/gpencil/gpencil_fill.c
+@@ -321,7 +321,8 @@ static void gp_draw_datablock(tGPDfill *tgpf, const float ink[4])
+ /* draw strokes in offscreen buffer */
+ static bool gp_render_offscreen(tGPDfill *tgpf)
+ {
+-  bool is_ortho = false;
++  bool is_ortho;
++  bool is_reverse;
+   float winmat[4][4];
+ 
+   if (!tgpf->gpd) {
+@@ -365,8 +366,10 @@ static bool gp_render_offscreen(tGPDfill *tgpf)
+ 
+   rctf viewplane;
+   float clip_start, clip_end;
++  /*SUNGREEN*/
+ 
+-  is_ortho = ED_view3d_viewplane_get(tgpf->depsgraph,
++
++  ED_view3d_viewplane_get(tgpf->depsgraph,
+                                      tgpf->v3d,
+                                      tgpf->rv3d,
+                                      tgpf->sizex,
+@@ -374,7 +377,9 @@ static bool gp_render_offscreen(tGPDfill *tgpf)
+                                      &viewplane,
+                                      &clip_start,
+                                      &clip_end,
+-                                     NULL);
++                                     NULL,
++                                     &is_ortho,
++                                     &is_reverse);
+   if (is_ortho) {
+     orthographic_m4(winmat,
+                     viewplane.xmin,
+@@ -385,13 +390,23 @@ static bool gp_render_offscreen(tGPDfill *tgpf)
+                     clip_end);
+   }
+   else {
+-    perspective_m4(winmat,
++      if(!is_reverse){
++        perspective_m4(winmat,
+                    viewplane.xmin,
+                    viewplane.xmax,
+                    viewplane.ymin,
+                    viewplane.ymax,
+                    clip_start,
+                    clip_end);
++      } else {
++          perspective_m4(winmat,
++                     viewplane.xmin,
++                     viewplane.xmax,
++                     viewplane.ymin,
++                     viewplane.ymax,
++                     clip_end,
++                     clip_start);
++      }
+   }
+ 
+   GPU_matrix_push_projection();
+diff --git a/source/blender/editors/include/ED_view3d.h b/source/blender/editors/include/ED_view3d.h
+index beca517f0a6..555aa156d3e 100644
+--- a/source/blender/editors/include/ED_view3d.h
++++ b/source/blender/editors/include/ED_view3d.h
+@@ -421,7 +421,7 @@ bool ED_view3d_clip_range_get(struct Depsgraph *depsgraph,
+                               float *r_clipsta,
+                               float *r_clipend,
+                               const bool use_ortho_factor);
+-bool ED_view3d_viewplane_get(struct Depsgraph *depsgraph,
++void ED_view3d_viewplane_get(struct Depsgraph *depsgraph,
+                              const struct View3D *v3d,
+                              const struct RegionView3D *rv3d,
+                              int winxi,
+@@ -429,7 +429,9 @@ bool ED_view3d_viewplane_get(struct Depsgraph *depsgraph,
+                              struct rctf *r_viewplane,
+                              float *r_clipsta,
+                              float *r_clipend,
+-                             float *r_pixsize);
++                             float *r_pixsize,
++                             bool *is_ortho,
++                             bool *is_reverse);
+ 
+ void ED_view3d_polygon_offset(const struct RegionView3D *rv3d, const float dist);
+ 
+diff --git a/source/blender/editors/space_view3d/view3d_draw.c b/source/blender/editors/space_view3d/view3d_draw.c
+index fac378ae104..72a0647a544 100644
+--- a/source/blender/editors/space_view3d/view3d_draw.c
++++ b/source/blender/editors/space_view3d/view3d_draw.c
+@@ -1870,6 +1870,7 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+ 
+   /* view state */
+   bool is_ortho = false;
++  bool is_reverse = false;
+   float winmat[4][4];
+ 
+   if (ofs && ((GPU_offscreen_width(ofs) != sizex) || (GPU_offscreen_height(ofs) != sizey))) {
+@@ -1922,8 +1923,9 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+     rctf viewplane;
+     float clip_start, clipend;
+ 
+-    is_ortho = ED_view3d_viewplane_get(
+-        depsgraph, v3d, rv3d, sizex, sizey, &viewplane, &clip_start, &clipend, NULL);
++    /* SUNGREEN ED_view3d_viewplane_get ??? */
++    ED_view3d_viewplane_get(
++        depsgraph, v3d, rv3d, sizex, sizey, &viewplane, &clip_start, &clipend, NULL, &is_ortho, &is_reverse);
+     if (is_ortho) {
+       orthographic_m4(winmat,
+                       viewplane.xmin,
+@@ -1934,13 +1936,23 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+                       clipend);
+     }
+     else {
+-      perspective_m4(winmat,
++        if(!is_reverse){
++            perspective_m4(winmat,
+                      viewplane.xmin,
+                      viewplane.xmax,
+                      viewplane.ymin,
+                      viewplane.ymax,
+                      clip_start,
+                      clipend);
++        } else {
++            perspective_m4(winmat,
++                 viewplane.xmin,
++                 viewplane.xmax,
++                 viewplane.ymin,
++                 viewplane.ymax,
++                 clipend,
++                 clip_start);
++        }
+     }
+   }
+ 
+diff --git a/source/blender/editors/space_view3d/view3d_utils.c b/source/blender/editors/space_view3d/view3d_utils.c
+index 377e8c58ba3..d5f2c33d546 100644
+--- a/source/blender/editors/space_view3d/view3d_utils.c
++++ b/source/blender/editors/space_view3d/view3d_utils.c
+@@ -155,7 +155,7 @@ bool ED_view3d_clip_range_get(Depsgraph *depsgraph,
+   return params.is_ortho;
+ }
+ 
+-bool ED_view3d_viewplane_get(Depsgraph *depsgraph,
++void ED_view3d_viewplane_get(Depsgraph *depsgraph,
+                              const View3D *v3d,
+                              const RegionView3D *rv3d,
+                              int winx,
+@@ -163,10 +163,12 @@ bool ED_view3d_viewplane_get(Depsgraph *depsgraph,
+                              rctf *r_viewplane,
+                              float *r_clip_start,
+                              float *r_clip_end,
+-                             float *r_pixsize)
++                             float *r_pixsize,
++                             bool *is_ortho,
++                             bool *is_reverse)
+ {
+   CameraParams params;
+-
++  /* SUNGREEN ED_view3d_viewplane_get*/
+   BKE_camera_params_init(&params);
+   BKE_camera_params_from_view3d(&params, depsgraph, v3d, rv3d);
+   BKE_camera_params_compute_viewplane(&params, winx, winy, 1.0f, 1.0f);
+@@ -183,8 +185,8 @@ bool ED_view3d_viewplane_get(Depsgraph *depsgraph,
+   if (r_pixsize) {
+     *r_pixsize = params.viewdx;
+   }
+-
+-  return params.is_ortho;
++  *is_ortho = params.is_ortho;
++  *is_reverse = params.cam_reverse;
+ }
+ 
+ /** \} */
+diff --git a/source/blender/editors/space_view3d/view3d_view.c b/source/blender/editors/space_view3d/view3d_view.c
+index fe77ca05a04..a538917ebfd 100644
+--- a/source/blender/editors/space_view3d/view3d_view.c
++++ b/source/blender/editors/space_view3d/view3d_view.c
+@@ -743,9 +743,10 @@ void view3d_winmatrix_set(Depsgraph *depsgraph,
+   rctf viewplane;
+   float clipsta, clipend;
+   bool is_ortho;
++  bool is_reverse;
+ 
+-  is_ortho = ED_view3d_viewplane_get(
+-      depsgraph, v3d, rv3d, region->winx, region->winy, &viewplane, &clipsta, &clipend, NULL);
++  ED_view3d_viewplane_get(
++      depsgraph, v3d, rv3d, region->winx, region->winy, &viewplane, &clipsta, &clipend, NULL, &is_ortho, &is_reverse);
+   rv3d->is_persp = !is_ortho;
+ 
+ #if 0
+@@ -775,8 +776,12 @@ void view3d_winmatrix_set(Depsgraph *depsgraph,
+         viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
+   }
+   else {
+-    GPU_matrix_frustum_set(
+-        viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
++    /*SUNGREEN FRUSTUM SET*/
++    if(is_reverse){
++        GPU_matrix_frustum_set(viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipend, clipsta);
++    } else {
++        GPU_matrix_frustum_set(viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
++    }
+   }
+ 
+   /* update matrix in 3d view region */
+diff --git a/source/blender/gpu/intern/gpu_matrix.c b/source/blender/gpu/intern/gpu_matrix.c
+index 8260e1496ff..9042b6f2cbf 100644
+--- a/source/blender/gpu/intern/gpu_matrix.c
++++ b/source/blender/gpu/intern/gpu_matrix.c
+@@ -326,6 +326,9 @@ static void mat4_ortho_set(
+ static void mat4_frustum_set(
+     float m[4][4], float left, float right, float bottom, float top, float near, float far)
+ {
++  /*SUNGREEN*/if(near>far){
++        reverse_perspective(m,left,right,bottom,top,far,near);
++    } else {
+   m[0][0] = 2.0f * near / (right - left);
+   m[1][0] = 0.0f;
+   m[2][0] = (right + left) / (right - left);
+@@ -345,7 +348,7 @@ static void mat4_frustum_set(
+   m[1][3] = 0.0f;
+   m[2][3] = -1.0f;
+   m[3][3] = 0.0f;
+-
++}
+   gpu_matrix_state_active_set_dirty(true);
+ }
+ 
+diff --git a/source/blender/makesdna/DNA_camera_types.h b/source/blender/makesdna/DNA_camera_types.h
+index b12d25d74e0..8145ead0cc7 100644
+--- a/source/blender/makesdna/DNA_camera_types.h
++++ b/source/blender/makesdna/DNA_camera_types.h
+@@ -98,6 +98,9 @@ typedef struct Camera {
+   char type;
+   /** Draw type extra. */
+   char dtx;
++  /* SUNGREEN */
++  char cam_reverse;
++  char cam_reverses[7];
+   short flag;
+   float passepartalpha;
+   float clip_start, clip_end;
+diff --git a/source/blender/makesrna/intern/rna_camera.c b/source/blender/makesrna/intern/rna_camera.c
+index 47a09233769..5e85193923c 100644
+--- a/source/blender/makesrna/intern/rna_camera.c
++++ b/source/blender/makesrna/intern/rna_camera.c
+@@ -620,6 +620,12 @@ void RNA_def_camera(BlenderRNA *brna)
+   RNA_def_property_ui_text(prop, "Stereo", "");
+ 
+   /* flag */
++  /* SUNGREEN */
++  prop = RNA_def_property(srna, "cam_reverse", PROP_BOOLEAN, PROP_NONE);
++  RNA_def_property_boolean_sdna(prop, NULL, "cam_reverse", 1);
++  RNA_def_property_ui_text(prop, "Reverse perspective", "Reverse perspective camera");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, NULL);
++
+   prop = RNA_def_property(srna, "show_limits", PROP_BOOLEAN, PROP_NONE);
+   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_SHOWLIMITS);
+   RNA_def_property_ui_text(
+diff --git a/source/blender/render/intern/include/render_types.h b/source/blender/render/intern/include/render_types.h
+index 3ae4b9c0b90..51bfc6d8174 100644
+--- a/source/blender/render/intern/include/render_types.h
++++ b/source/blender/render/intern/include/render_types.h
+@@ -104,6 +104,9 @@ struct Render {
+   float clip_start;
+   float clip_end;
+ 
++  /* SUNGREEN */
++  char cam_reverse;
++
+   /* main, scene, and its full copy of renderdata and world */
+   struct Main *main;
+   Scene *scene;
+diff --git a/source/blender/render/intern/source/initrender.c b/source/blender/render/intern/source/initrender.c
+index 138d95af055..f9355e0cd40 100644
+--- a/source/blender/render/intern/source/initrender.c
++++ b/source/blender/render/intern/source/initrender.c
+@@ -180,6 +180,8 @@ static void re_camera_params_get(Render *re, CameraParams *params)
+   re->clip_end = params->clip_end;
+ 
+   re->viewplane = params->viewplane;
++  /* SUNGREEN */
++  re->cam_reverse = params->cam_reverse;
+ }
+ 
+ void RE_SetOverrideCamera(Render *re, Object *camera)
+@@ -221,7 +223,10 @@ void RE_GetCameraWindow(struct Render *re, struct Object *camera, float mat[4][4
+ void RE_GetCameraWindowWithOverscan(struct Render *re, float mat[4][4], float overscan)
+ {
+   CameraParams params;
+-  params.is_ortho = re->winmat[3][3] != 0.0f;
++  /* SUNGREEN */
++  params.cam_reverse = re->cam_reverse;
++  params.is_ortho = (re->winmat[2][3]== 0.0f && re->winmat[3][3] != 0.0f);
++
+   params.clip_start = re->clip_start;
+   params.clip_end = re->clip_end;
+   params.viewplane = re->viewplane;
