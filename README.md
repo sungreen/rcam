@@ -1,5 +1,7 @@
-# Предыстория
+# Предистория
 https://blenderartists.org/t/reverse-perspective-rendering/1213342
+http://paulbourke.net/miscellaneous/reverseperspective/
+http://paulbourke.net/miscellaneous/reverseperspective/reverseperspective.pdf
 
 # rcam
 Патч для Blender, реализующий эффект обратной перспективы для камеры.
