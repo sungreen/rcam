@@ -1,0 +1,842 @@
+diff --git a/release/scripts/startup/bl_ui/properties_data_camera.py b/release/scripts/startup/bl_ui/properties_data_camera.py
+index b56182bb637..329ce0c8bcb 100644
+--- a/release/scripts/startup/bl_ui/properties_data_camera.py
++++ b/release/scripts/startup/bl_ui/properties_data_camera.py
+@@ -89,6 +89,7 @@ class DATA_PT_lens(CameraButtonsPanel, Panel):
+             elif cam.lens_unit == 'FOV':
+                 col.prop(cam, "angle")
+             col.prop(cam, "lens_unit")
++            col.prop(cam, "cam_factor")
+ 
+         elif cam.type == 'ORTHO':
+             col.prop(cam, "ortho_scale")
+diff --git a/source/blender/blenkernel/BKE_camera.h b/source/blender/blenkernel/BKE_camera.h
+index b42fcbe7808..1c7dbfc4f24 100644
+--- a/source/blender/blenkernel/BKE_camera.h
++++ b/source/blender/blenkernel/BKE_camera.h
+@@ -82,6 +82,9 @@ typedef struct CameraParams {
+ 
+   /* computed matrix */
+   float winmat[4][4];
++  float cam_factor;
++  char _pad[4];
++
+ } CameraParams;
+ 
+ /* values for CameraParams.zoom, need to be taken into account for some operations */
+diff --git a/source/blender/blenkernel/intern/camera.c b/source/blender/blenkernel/intern/camera.c
+index 0ca22e34973..5e05c5c4bb0 100644
+--- a/source/blender/blenkernel/intern/camera.c
++++ b/source/blender/blenkernel/intern/camera.c
+@@ -279,6 +279,7 @@ void BKE_camera_params_init(CameraParams *params)
+   /* fallback for non camera objects */
+   params->clip_start = 0.1f;
+   params->clip_end = 100.0f;
++  /*SUNGREEN CAM=0*/ params->cam_factor = 0.0f;
+ }
+ 
+ void BKE_camera_params_from_object(CameraParams *params, const Object *cam_ob)
+@@ -306,6 +307,7 @@ void BKE_camera_params_from_object(CameraParams *params, const Object *cam_ob)
+ 
+     params->clip_start = cam->clip_start;
+     params->clip_end = cam->clip_end;
++    params->cam_factor = cam->cam_factor;
+   }
+   else if (cam_ob->type == OB_LAMP) {
+     /* light object */
+@@ -329,6 +331,7 @@ void BKE_camera_params_from_view3d(CameraParams *params,
+   params->lens = v3d->lens;
+   params->clip_start = v3d->clip_start;
+   params->clip_end = v3d->clip_end;
++  params->cam_factor = v3d->cam_factor;
+ 
+   if (rv3d->persp == RV3D_CAMOB) {
+     /* camera view */
+@@ -451,7 +454,8 @@ void BKE_camera_params_compute_matrix(CameraParams *params)
+                    viewplane.ymin,
+                    viewplane.ymax,
+                    params->clip_start,
+-                   params->clip_end);
++                   params->clip_end,
++                   params->cam_factor);
+   }
+ }
+ 
+diff --git a/source/blender/blenkernel/intern/particle_system.c b/source/blender/blenkernel/intern/particle_system.c
+index 71df28c8b42..1442bad98ed 100644
+--- a/source/blender/blenkernel/intern/particle_system.c
++++ b/source/blender/blenkernel/intern/particle_system.c
+@@ -1393,7 +1393,7 @@ void psys_update_particle_tree(ParticleSystem *psys, float cfra)
+   }
+ }
+ 
+-static void psys_update_effectors(ParticleSimulationData *sim)
++static void psys__effectors(ParticleSimulationData *sim)
+ {
+   BKE_effectors_free(sim->psys->effectors);
+   sim->psys->effectors = BKE_effectors_create(
+@@ -3549,7 +3549,7 @@ static void hair_step(ParticleSimulationData *sim, float cfra, const bool use_re
+   }
+ 
+   /* following lines were removed r29079 but cause bug T22811, see report for details */
+-  psys_update_effectors(sim);
++  //HUBUS psys_update_effectors(sim);
+   psys_update_path_cache(sim, cfra, use_render_params);
+ 
+   psys->flag |= PSYS_HAIR_UPDATED;
+@@ -3850,7 +3850,7 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
+   /* for now do both, boids us 'rng' */
+   sim->rng = BLI_rng_new_srandom(31415926 + (int)cfra + psys->seed);
+ 
+-  psys_update_effectors(sim);
++  //HUBUS psys_update_effectors(sim);
+ 
+   if (part->type != PART_HAIR) {
+     sim->colliders = BKE_collider_cache_create(sim->depsgraph, sim->ob, part->collision_group);
+@@ -4102,7 +4102,7 @@ static void cached_step(ParticleSimulationData *sim, float cfra, const bool use_
+   PARTICLE_P;
+   float disp, dietime;
+ 
+-  psys_update_effectors(sim);
++  //HUBUS psys_update_effectors(sim);
+ 
+   disp = psys_get_current_display_percentage(psys, use_render_params);
+ 
+diff --git a/source/blender/blenkernel/intern/tracking.c b/source/blender/blenkernel/intern/tracking.c
+index e5f9d59270e..78ed78ba560 100644
+--- a/source/blender/blenkernel/intern/tracking.c
++++ b/source/blender/blenkernel/intern/tracking.c
+@@ -426,7 +426,7 @@ void BKE_tracking_get_projection_matrix(MovieTracking *tracking,
+ {
+   MovieReconstructedCamera *camera;
+   float lens = tracking->camera.focal * tracking->camera.sensor_width / (float)winx;
+-  float viewfac, pixsize, left, right, bottom, top, clipsta, clipend;
++  float viewfac, pixsize, left, right, bottom, top, clipsta, clipend, cam_factor;
+   float winmat[4][4];
+   float ycor = 1.0f / tracking->camera.pixel_aspect;
+   float shiftx, shifty, winside = (float)min_ii(winx, winy);
+@@ -435,6 +435,7 @@ void BKE_tracking_get_projection_matrix(MovieTracking *tracking,
+ 
+   clipsta = 0.1f;
+   clipend = 1000.0f;
++  cam_factor = 0.0f;
+ 
+   if (winx >= winy) {
+     viewfac = (lens * winx) / tracking->camera.sensor_width;
+@@ -455,7 +456,7 @@ void BKE_tracking_get_projection_matrix(MovieTracking *tracking,
+   bottom *= pixsize;
+   top *= pixsize;
+ 
+-  perspective_m4(winmat, left, right, bottom, top, clipsta, clipend);
++  perspective_m4(winmat, left, right, bottom, top, clipsta, clipend, cam_factor);
+ 
+   camera = BKE_tracking_camera_get_reconstructed(tracking, object, framenr);
+ 
+diff --git a/source/blender/blenlib/BLI_math_geom.h b/source/blender/blenlib/BLI_math_geom.h
+index c0a9ea91e75..a430060ae02 100644
+--- a/source/blender/blenlib/BLI_math_geom.h
++++ b/source/blender/blenlib/BLI_math_geom.h
+@@ -653,14 +653,16 @@ void perspective_m4(float mat[4][4],
+                     const float bottom,
+                     const float top,
+                     const float nearClip,
+-                    const float farClip);
++                    const float farClip,
++                    const float cam_factor);
+ void perspective_m4_fov(float mat[4][4],
+                         const float angle_left,
+                         const float angle_right,
+                         const float angle_up,
+                         const float angle_down,
+                         const float nearClip,
+-                        const float farClip);
++                        const float farClip,
++                        const float cam_factor);
+ void orthographic_m4(float mat[4][4],
+                      const float left,
+                      const float right,
+diff --git a/source/blender/blenlib/BLI_math_matrix.h b/source/blender/blenlib/BLI_math_matrix.h
+index d971f48c4cf..bd9a285113e 100644
+--- a/source/blender/blenlib/BLI_math_matrix.h
++++ b/source/blender/blenlib/BLI_math_matrix.h
+@@ -302,6 +302,8 @@ void invert_m4_m4_safe(float Ainv[4][4], const float A[4][4]);
+ void invert_m3_m3_safe_ortho(float Ainv[3][3], const float A[3][3]);
+ void invert_m4_m4_safe_ortho(float Ainv[4][4], const float A[4][4]);
+ 
++/*SUNGREEN*/ bool universe_perspective(float mat[4][4], const float left, const float right, const float bottom, const float top, const float near, const float far, const float cam_factor);
++
+ /****************************** Transformations ******************************/
+ 
+ void scale_m3_fl(float R[3][3], float scale);
+diff --git a/source/blender/blenlib/intern/math_geom.c b/source/blender/blenlib/intern/math_geom.c
+index 3cc4d03d547..df3ffb0836a 100644
+--- a/source/blender/blenlib/intern/math_geom.c
++++ b/source/blender/blenlib/intern/math_geom.c
+@@ -4827,8 +4827,11 @@ void perspective_m4(float mat[4][4],
+                     const float bottom,
+                     const float top,
+                     const float nearClip,
+-                    const float farClip)
++                    const float farClip,
++                    const float cam_factor)
+ {
++    /*SUNGREEN SET FRUSTUM*/ universe_perspective(mat, left, right, bottom, top, nearClip, farClip, cam_factor);
++    return;
+   const float Xdelta = right - left;
+   const float Ydelta = top - bottom;
+   const float Zdelta = farClip - nearClip;
+@@ -4853,7 +4856,8 @@ void perspective_m4_fov(float mat[4][4],
+                         const float angle_up,
+                         const float angle_down,
+                         const float nearClip,
+-                        const float farClip)
++                        const float farClip,
++                        const float cam_factor)
+ {
+   const float tan_angle_left = tanf(angle_left);
+   const float tan_angle_right = tanf(angle_right);
+@@ -4861,7 +4865,7 @@ void perspective_m4_fov(float mat[4][4],
+   const float tan_angle_top = tanf(angle_down);
+ 
+   perspective_m4(
+-      mat, tan_angle_left, tan_angle_right, tan_angle_top, tan_angle_bottom, nearClip, farClip);
++      mat, tan_angle_left, tan_angle_right, tan_angle_top, tan_angle_bottom, nearClip, farClip, cam_factor);
+   mat[0][0] /= nearClip;
+   mat[1][1] /= nearClip;
+ }
+diff --git a/source/blender/blenlib/intern/math_matrix.c b/source/blender/blenlib/intern/math_matrix.c
+index 6b5efc3f8c4..d48d81fd347 100644
+--- a/source/blender/blenlib/intern/math_matrix.c
++++ b/source/blender/blenlib/intern/math_matrix.c
+@@ -3185,6 +3185,46 @@ void invert_m4_m4_safe(float Ainv[4][4], const float A[4][4])
+  * where we want to specify the length of the degenerate axes.
+  * \{ */
+ 
++/*SUNGREEN*/ bool universe_perspective(float mat[4][4], const float left, const float right, const float bottom, const float top, const float near, const float far, const float cam_factor)
++{
++    float A, B, C, D, Ws, We, width, height, depth;
++    //Ws = near+(1.0f-near)*cam_factor;
++    //We = far+((near/far)-far)*cam_factor;
++    width = right-left;
++    height = top-bottom;
++    depth = far-near;
++
++    Ws = near+depth*cam_factor;
++    We = far-depth*cam_factor;
++
++    C = -(We-Ws)/depth;
++    D = We+C*far;
++    A = -(We+Ws)/depth;
++    B = We+A*far;
++
++    mat[0][0] = 2*near/*Ws*//width;
++    mat[1][0] = 0.0f;
++    mat[2][0] = -C*(right + left)/width;
++    mat[3][0] = D*(right + left)/width;
++
++    mat[0][1] = 0.0f;
++    mat[1][1] = 2*near/*Ws*//height;
++    mat[2][1] = -C*(top + bottom)/height;
++    mat[3][1] = D*(top + bottom)/height;
++
++    mat[0][2] = 0.0f;
++    mat[1][2] = 0.0f;
++    mat[2][2] = A;
++    mat[3][2] = B;
++
++    mat[0][3] = 0.0f;
++    mat[1][3] = 0.0f;
++    mat[2][3] = C;
++    mat[3][3] = D;
++
++    return true;
++}
++
+ /**
+  * Return true if invert should be attempted again.
+  *
+diff --git a/source/blender/blenloader/intern/versioning_280.c b/source/blender/blenloader/intern/versioning_280.c
+index 7dc2c9e86ee..6ec87592b47 100644
+--- a/source/blender/blenloader/intern/versioning_280.c
++++ b/source/blender/blenloader/intern/versioning_280.c
+@@ -4964,6 +4964,7 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
+                                               V3D_OFSDRAW_SHOW_ANNOTATION);
+         wm->xr.session_settings.clip_start = v3d_default->clip_start;
+         wm->xr.session_settings.clip_end = v3d_default->clip_end;
++        wm->xr.session_settings.cam_factor = v3d_default->cam_factor;
+ 
+         wm->xr.session_settings.flag = XR_SESSION_USE_POSITION_TRACKING;
+       }
+diff --git a/source/blender/blenloader/intern/versioning_defaults.c b/source/blender/blenloader/intern/versioning_defaults.c
+index 198f65b9794..f1b2750ab23 100644
+--- a/source/blender/blenloader/intern/versioning_defaults.c
++++ b/source/blender/blenloader/intern/versioning_defaults.c
+@@ -207,6 +207,7 @@ static void blo_update_defaults_screen(bScreen *screen,
+       /* Remove dither pattern in wireframe mode. */
+       v3d->shading.xray_alpha_wire = 0.0f;
+       v3d->clip_start = 0.01f;
++      /*SUNGREEN CAM=0*/v3d->cam_factor = 0.0f;
+       /* Skip startups that use the viewport color by default. */
+       if (v3d->shading.background_type != V3D_SHADING_BACKGROUND_VIEWPORT) {
+         copy_v3_fl(v3d->shading.background_color, 0.05f);
+diff --git a/source/blender/draw/engines/eevee/eevee_lightprobes.c b/source/blender/draw/engines/eevee/eevee_lightprobes.c
+index 3671bea9ac0..35a6cc4da6a 100644
+--- a/source/blender/draw/engines/eevee/eevee_lightprobes.c
++++ b/source/blender/draw/engines/eevee/eevee_lightprobes.c
+@@ -801,7 +801,8 @@ static void render_cubemap(void (*callback)(int face, EEVEE_BakeRenderData *user
+   DRWView **views = do_culling ? stl->g_data->bake_views : stl->g_data->world_views;
+ 
+   float winmat[4][4], viewmat[4][4];
+-  perspective_m4(winmat, -near, near, -near, near, near, far);
++  /*SUNGREEN NEED CAM_FACTOR*/
++  perspective_m4(winmat, -near, near, -near, near, near, far, 0.0f);
+ 
+   /* Prepare views at the same time for faster culling. */
+   for (int i = 0; i < 6; i++) {
+diff --git a/source/blender/draw/engines/eevee/eevee_shadows.c b/source/blender/draw/engines/eevee/eevee_shadows.c
+index fa5afd60235..315e3359c39 100644
+--- a/source/blender/draw/engines/eevee/eevee_shadows.c
++++ b/source/blender/draw/engines/eevee/eevee_shadows.c
+@@ -337,7 +337,6 @@ void EEVEE_shadows_draw(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata, DRWView
+     }
+   }
+   DRW_stats_group_end();
+-
+   DRW_view_set_active(view);
+ 
+   GPU_uniformbuf_update(sldata->shadow_ubo, &linfo->shadow_data); /* Update all data at once */
+diff --git a/source/blender/draw/engines/eevee/eevee_shadows_cube.c b/source/blender/draw/engines/eevee/eevee_shadows_cube.c
+index 96cf032fe28..349e0dd3dc4 100644
+--- a/source/blender/draw/engines/eevee/eevee_shadows_cube.c
++++ b/source/blender/draw/engines/eevee/eevee_shadows_cube.c
+@@ -150,7 +150,8 @@ static void eevee_ensure_cube_views(
+     side *= ((float)cube_res + 1.0f) / (float)(cube_res);
+   }
+ 
+-  perspective_m4(winmat, -side, side, -side, side, near, far);
++  /*SUNGREEN NEED CAM_FACTOR*/
++  perspective_m4(winmat, -side, side, -side, side, near, far, 0.0f);
+ 
+   for (int i = 0; i < 6; i++) {
+     float tmp[4][4];
+diff --git a/source/blender/draw/intern/draw_manager_data.c b/source/blender/draw/intern/draw_manager_data.c
+index f1d3f8c8d5a..4306970406f 100644
+--- a/source/blender/draw/intern/draw_manager_data.c
++++ b/source/blender/draw/intern/draw_manager_data.c
+@@ -1911,7 +1911,8 @@ void DRW_view_frustum_planes_get(const DRWView *view, float planes[6][4])
+ bool DRW_view_is_persp_get(const DRWView *view)
+ {
+   view = (view) ? view : DST.view_default;
+-  return view->storage.winmat[3][3] == 0.0f;
++  //return view->storage.winmat[3][3] == 0.0f;
++  /*SUNGREEN*/ return (view->storage.winmat[3][3] != 1.0f) && (view->storage.winmat[2][3] != 0.0f);
+ }
+ 
+ float DRW_view_near_distance_get(const DRWView *view)
+diff --git a/source/blender/draw/intern/draw_manager_exec.c b/source/blender/draw/intern/draw_manager_exec.c
+index 749e9e6bafb..957885917ed 100644
+--- a/source/blender/draw/intern/draw_manager_exec.c
++++ b/source/blender/draw/intern/draw_manager_exec.c
+@@ -389,9 +389,12 @@ static bool draw_culling_sphere_test(const BoundSphere *frustum_bsphere,
+    * heuristic when sculpting. */
+   for (int p = 0; p < 6; p++) {
+     float dist = plane_point_side_v3(frustum_planes[p], bsphere->center);
++    printf("SUNGREEN %0i %10.4f %10.4f %10.4f %10.4f",p, dist,bsphere->radius, frustum_planes[p], bsphere->center);
+     if (dist < -bsphere->radius) {
++        printf(" - false\n");
+       return false;
+     }
++    printf(" - ok\n");
+   }
+   return true;
+ }
+@@ -485,7 +488,7 @@ void DRW_culling_frustum_planes_get(const DRWView *view, float planes[6][4])
+   memcpy(planes, view->frustum_planes, sizeof(float[6][4]));
+ }
+ 
+-static void draw_compute_culling(DRWView *view)
++/*SUNGREEN FIND PROBLEM CULLING*/ static void draw_compute_culling(DRWView *view)
+ {
+   view = view->parent ? view->parent : view;
+ 
+@@ -503,8 +506,9 @@ static void draw_compute_culling(DRWView *view)
+       cull->mask = 0;
+     }
+     else {
+-      bool culled = !draw_culling_sphere_test(
+-          &view->frustum_bsphere, view->frustum_planes, &cull->bsphere);
++      //bool culled = !draw_culling_sphere_test(
++      //    &view->frustum_bsphere, view->frustum_planes, &cull->bsphere);
++      /*SUNGREEN CULLED=FALSE*/ bool culled = false;
+ 
+ #ifdef DRW_DEBUG_CULLING
+       if (G.debug_value != 0) {
+@@ -1069,7 +1073,7 @@ static void drw_update_view(void)
+   /* TODO get rid of this. */
+   DST.view_storage_cpy = DST.view_active->storage;
+ 
+-  draw_compute_culling(DST.view_active);
++  /*SUNGREEN CULLING OBJECT DISABLE*/ draw_compute_culling(DST.view_active);
+ }
+ 
+ static void drw_draw_pass_ex(DRWPass *pass,
+diff --git a/source/blender/editors/gpencil/gpencil_fill.c b/source/blender/editors/gpencil/gpencil_fill.c
+index 1059e37704a..b586f0615ee 100644
+--- a/source/blender/editors/gpencil/gpencil_fill.c
++++ b/source/blender/editors/gpencil/gpencil_fill.c
+@@ -425,7 +425,7 @@ static bool gpencil_render_offscreen(tGPDfill *tgpf)
+   ImBuf *ibuf = IMB_allocImBuf(tgpf->sizex, tgpf->sizey, 32, flag);
+ 
+   rctf viewplane;
+-  float clip_start, clip_end;
++  float clip_start, clip_end, cam_factor;
+ 
+   is_ortho = ED_view3d_viewplane_get(tgpf->depsgraph,
+                                      tgpf->v3d,
+@@ -435,6 +435,7 @@ static bool gpencil_render_offscreen(tGPDfill *tgpf)
+                                      &viewplane,
+                                      &clip_start,
+                                      &clip_end,
++                                     &cam_factor,
+                                      NULL);
+   if (is_ortho) {
+     orthographic_m4(winmat,
+@@ -452,7 +453,8 @@ static bool gpencil_render_offscreen(tGPDfill *tgpf)
+                    viewplane.ymin,
+                    viewplane.ymax,
+                    clip_start,
+-                   clip_end);
++                   clip_end,
++                   cam_factor);
+   }
+ 
+   GPU_matrix_push_projection();
+diff --git a/source/blender/editors/include/ED_view3d.h b/source/blender/editors/include/ED_view3d.h
+index a4856845a65..0f75cb5b691 100644
+--- a/source/blender/editors/include/ED_view3d.h
++++ b/source/blender/editors/include/ED_view3d.h
+@@ -407,6 +407,7 @@ bool ED_view3d_clip_range_get(struct Depsgraph *depsgraph,
+                               const struct RegionView3D *rv3d,
+                               float *r_clipsta,
+                               float *r_clipend,
++                              float *r_cam_factor,
+                               const bool use_ortho_factor);
+ bool ED_view3d_viewplane_get(struct Depsgraph *depsgraph,
+                              const struct View3D *v3d,
+@@ -416,6 +417,7 @@ bool ED_view3d_viewplane_get(struct Depsgraph *depsgraph,
+                              struct rctf *r_viewplane,
+                              float *r_clipsta,
+                              float *r_clipend,
++                             float *r_cam_factor,
+                              float *r_pixsize);
+ 
+ void ED_view3d_polygon_offset(const struct RegionView3D *rv3d, const float dist);
+diff --git a/source/blender/editors/include/ED_view3d_offscreen.h b/source/blender/editors/include/ED_view3d_offscreen.h
+index e854982c796..9b47a9916fc 100644
+--- a/source/blender/editors/include/ED_view3d_offscreen.h
++++ b/source/blender/editors/include/ED_view3d_offscreen.h
+@@ -67,6 +67,7 @@ void ED_view3d_draw_offscreen_simple(struct Depsgraph *depsgraph,
+                                      const float winmat[4][4],
+                                      float clip_start,
+                                      float clip_end,
++                                     float cam_factor,
+                                      bool is_image_render,
+                                      bool draw_background,
+                                      const char *viewname,
+diff --git a/source/blender/editors/mesh/editmesh_knife.c b/source/blender/editors/mesh/editmesh_knife.c
+index f45f48e0e32..7d0c53b5ed5 100644
+--- a/source/blender/editors/mesh/editmesh_knife.c
++++ b/source/blender/editors/mesh/editmesh_knife.c
+@@ -235,6 +235,8 @@ typedef struct KnifeTool_OpData {
+   float angle;
+ 
+   const float (*cagecos)[3];
++  float cam_factor;
++  char _pad5[4];
+ } KnifeTool_OpData;
+ 
+ enum {
+@@ -2567,7 +2569,7 @@ static void knife_recalc_projmat(KnifeTool_OpData *kcd)
+   normalize_v3(kcd->proj_zaxis);
+ 
+   kcd->is_ortho = ED_view3d_clip_range_get(
+-      kcd->vc.depsgraph, kcd->vc.v3d, kcd->vc.rv3d, &kcd->clipsta, &kcd->clipend, true);
++      kcd->vc.depsgraph, kcd->vc.v3d, kcd->vc.rv3d, &kcd->clipsta, &kcd->clipend, &kcd->cam_factor, true);
+ }
+ 
+ /* called when modal loop selection is done... */
+diff --git a/source/blender/editors/sculpt_paint/paint_image_proj.c b/source/blender/editors/sculpt_paint/paint_image_proj.c
+index 087e9128149..d36105fcbea 100644
+--- a/source/blender/editors/sculpt_paint/paint_image_proj.c
++++ b/source/blender/editors/sculpt_paint/paint_image_proj.c
+@@ -434,6 +434,8 @@ typedef struct ProjPaintState {
+   Material **mat_array;
+ 
+   bool use_colormanagement;
++  float cam_factor;
++  char _pad5[4];
+ } ProjPaintState;
+ 
+ typedef union pixelPointer {
+@@ -3704,7 +3706,7 @@ static void proj_paint_state_viewport_init(ProjPaintState *ps, const char symmet
+     ED_view3d_ob_project_mat_get_from_obmat(ps->rv3d, ps->obmat, ps->projectMat);
+ 
+     ps->is_ortho = ED_view3d_clip_range_get(
+-        ps->depsgraph, ps->v3d, ps->rv3d, &ps->clip_start, &ps->clip_end, true);
++        ps->depsgraph, ps->v3d, ps->rv3d, &ps->clip_start, &ps->clip_end, &ps->cam_factor, true);
+   }
+   else {
+     /* re-projection */
+@@ -6273,6 +6275,7 @@ static int texture_paint_image_from_view_exec(bContext *C, wmOperator *op)
+     IDProperty *view_data;
+     bool is_ortho;
+     float *array;
++    float cam_factor;
+ 
+     val.array.len = PROJ_VIEW_DATA_SIZE;
+     val.array.type = IDP_FLOAT;
+@@ -6283,7 +6286,7 @@ static int texture_paint_image_from_view_exec(bContext *C, wmOperator *op)
+     array += sizeof(rv3d->winmat) / sizeof(float);
+     memcpy(array, rv3d->viewmat, sizeof(rv3d->viewmat));
+     array += sizeof(rv3d->viewmat) / sizeof(float);
+-    is_ortho = ED_view3d_clip_range_get(depsgraph, v3d, rv3d, &array[0], &array[1], true);
++    //HUBUS is_ortho = ED_view3d_clip_range_get(depsgraph, v3d, rv3d, &array[0], &array[1], true);
+     /* using float for a bool is dodgy but since its an extra member in the array...
+      * easier than adding a single bool prop */
+     array[2] = is_ortho ? 1.0f : 0.0f;
+diff --git a/source/blender/editors/space_view3d/view3d_draw.c b/source/blender/editors/space_view3d/view3d_draw.c
+index 5e61d9d6250..931b76aeafe 100644
+--- a/source/blender/editors/space_view3d/view3d_draw.c
++++ b/source/blender/editors/space_view3d/view3d_draw.c
+@@ -411,6 +411,7 @@ static void view3d_camera_border(const Scene *scene,
+   /* fallback for non camera objects */
+   params.clip_start = v3d->clip_start;
+   params.clip_end = v3d->clip_end;
++  params.cam_factor = v3d->cam_factor;
+   BKE_camera_params_from_object(&params, camera_eval);
+   if (no_shift) {
+     params.shiftx = 0.0f;
+@@ -1780,6 +1781,7 @@ void ED_view3d_draw_offscreen_simple(Depsgraph *depsgraph,
+                                      const float winmat[4][4],
+                                      float clip_start,
+                                      float clip_end,
++                                     float cam_factor,
+                                      bool is_image_render,
+                                      bool draw_background,
+                                      const char *viewname,
+@@ -1831,6 +1833,7 @@ void ED_view3d_draw_offscreen_simple(Depsgraph *depsgraph,
+   rv3d.persp = RV3D_PERSP;
+   v3d.clip_start = clip_start;
+   v3d.clip_end = clip_end;
++  v3d.cam_factor = cam_factor;
+   /* Actually not used since we pass in the projection matrix. */
+   v3d.lens = 0;
+ 
+@@ -1926,10 +1929,10 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+   }
+   else {
+     rctf viewplane;
+-    float clip_start, clipend;
++    float clip_start, clipend, cam_factor;
+ 
+     is_ortho = ED_view3d_viewplane_get(
+-        depsgraph, v3d, rv3d, sizex, sizey, &viewplane, &clip_start, &clipend, NULL);
++        depsgraph, v3d, rv3d, sizex, sizey, &viewplane, &clip_start, &clipend, &cam_factor, NULL);
+     if (is_ortho) {
+       orthographic_m4(winmat,
+                       viewplane.xmin,
+@@ -1946,7 +1949,8 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+                      viewplane.ymin,
+                      viewplane.ymax,
+                      clip_start,
+-                     clipend);
++                     clipend,
++                     cam_factor);
+     }
+   }
+ 
+@@ -2073,6 +2077,7 @@ ImBuf *ED_view3d_draw_offscreen_imbuf_simple(Depsgraph *depsgraph,
+     copy_m4_m4(rv3d.winmat, params.winmat);
+     v3d.clip_start = params.clip_start;
+     v3d.clip_end = params.clip_end;
++    v3d.cam_factor = params.cam_factor;
+     v3d.lens = params.lens;
+   }
+ 
+diff --git a/source/blender/editors/space_view3d/view3d_project.c b/source/blender/editors/space_view3d/view3d_project.c
+index 58538fc3ecb..84635f89b29 100644
+--- a/source/blender/editors/space_view3d/view3d_project.c
++++ b/source/blender/editors/space_view3d/view3d_project.c
+@@ -347,7 +347,7 @@ static void view3d_win_to_ray_segment(struct Depsgraph *depsgraph,
+                                       float r_ray_end[3])
+ {
+   RegionView3D *rv3d = region->regiondata;
+-  float _ray_co[3], _ray_dir[3], start_offset, end_offset;
++  float _ray_co[3], _ray_dir[3], start_offset, end_offset, cam_factor;
+ 
+   if (!r_ray_co) {
+     r_ray_co = _ray_co;
+@@ -364,7 +364,8 @@ static void view3d_win_to_ray_segment(struct Depsgraph *depsgraph,
+     start_offset = -end_offset;
+   }
+   else {
+-    ED_view3d_clip_range_get(depsgraph, v3d, rv3d, &start_offset, &end_offset, false);
++    /*SUNGREEN NEED CAM_FACTOR*/
++    ED_view3d_clip_range_get(depsgraph, v3d, rv3d, &start_offset, &end_offset, &cam_factor, false);
+   }
+ 
+   if (r_ray_start) {
+diff --git a/source/blender/editors/space_view3d/view3d_utils.c b/source/blender/editors/space_view3d/view3d_utils.c
+index 2b7b8255068..b3a5c5bb850 100644
+--- a/source/blender/editors/space_view3d/view3d_utils.c
++++ b/source/blender/editors/space_view3d/view3d_utils.c
+@@ -130,6 +130,7 @@ bool ED_view3d_clip_range_get(Depsgraph *depsgraph,
+                               const RegionView3D *rv3d,
+                               float *r_clipsta,
+                               float *r_clipend,
++                              float *r_cam_factor,
+                               const bool use_ortho_factor)
+ {
+   CameraParams params;
+@@ -149,6 +150,9 @@ bool ED_view3d_clip_range_get(Depsgraph *depsgraph,
+   if (r_clipend) {
+     *r_clipend = params.clip_end;
+   }
++  if (r_cam_factor) {
++    *r_cam_factor = params.cam_factor;
++  }
+ 
+   return params.is_ortho;
+ }
+@@ -161,6 +165,7 @@ bool ED_view3d_viewplane_get(Depsgraph *depsgraph,
+                              rctf *r_viewplane,
+                              float *r_clip_start,
+                              float *r_clip_end,
++                             float *r_cam_factor,
+                              float *r_pixsize)
+ {
+   CameraParams params;
+@@ -178,6 +183,9 @@ bool ED_view3d_viewplane_get(Depsgraph *depsgraph,
+   if (r_clip_end) {
+     *r_clip_end = params.clip_end;
+   }
++  if (r_cam_factor) {
++    *r_cam_factor = params.cam_factor;
++  }
+   if (r_pixsize) {
+     *r_pixsize = params.viewdx;
+   }
+diff --git a/source/blender/editors/space_view3d/view3d_view.c b/source/blender/editors/space_view3d/view3d_view.c
+index 9d947384bf0..31a957158d5 100644
+--- a/source/blender/editors/space_view3d/view3d_view.c
++++ b/source/blender/editors/space_view3d/view3d_view.c
+@@ -721,11 +721,11 @@ void view3d_winmatrix_set(Depsgraph *depsgraph,
+ {
+   RegionView3D *rv3d = region->regiondata;
+   rctf viewplane;
+-  float clipsta, clipend;
++  float clipsta, clipend, cam_factor;
+   bool is_ortho;
+ 
+   is_ortho = ED_view3d_viewplane_get(
+-      depsgraph, v3d, rv3d, region->winx, region->winy, &viewplane, &clipsta, &clipend, NULL);
++      depsgraph, v3d, rv3d, region->winx, region->winy, &viewplane, &clipsta, &clipend, &cam_factor, NULL);
+   rv3d->is_persp = !is_ortho;
+ 
+ #if 0
+@@ -756,7 +756,7 @@ void view3d_winmatrix_set(Depsgraph *depsgraph,
+   }
+   else {
+     GPU_matrix_frustum_set(
+-        viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
++        viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend, cam_factor);
+   }
+ 
+   /* update matrix in 3d view region */
+diff --git a/source/blender/freestyle/intern/blender_interface/BlenderStrokeRenderer.cpp b/source/blender/freestyle/intern/blender_interface/BlenderStrokeRenderer.cpp
+index f761b1f6243..6cb4f4733aa 100644
+--- a/source/blender/freestyle/intern/blender_interface/BlenderStrokeRenderer.cpp
++++ b/source/blender/freestyle/intern/blender_interface/BlenderStrokeRenderer.cpp
+@@ -148,6 +148,7 @@ BlenderStrokeRenderer::BlenderStrokeRenderer(Render *re, int render_count)
+   camera->ortho_scale = max(re->rectx, re->recty);
+   camera->clip_start = 0.1f;
+   camera->clip_end = 100.0f;
++  camera->cam_factor = 222222.0f;
+ 
+   _z_delta = 0.00001f;
+   _z = camera->clip_start + _z_delta;
+diff --git a/source/blender/gpu/GPU_matrix.h b/source/blender/gpu/GPU_matrix.h
+index aad6ae9e2ba..21675857b1c 100644
+--- a/source/blender/gpu/GPU_matrix.h
++++ b/source/blender/gpu/GPU_matrix.h
+@@ -92,8 +92,8 @@ void GPU_matrix_ortho_set(float left, float right, float bottom, float top, floa
+ void GPU_matrix_ortho_set_z(float near, float far);
+ 
+ void GPU_matrix_frustum_set(
+-    float left, float right, float bottom, float top, float near, float far);
+-void GPU_matrix_perspective_set(float fovy, float aspect, float near, float far);
++    float left, float right, float bottom, float top, float near, float far, float cam_factor);
++void GPU_matrix_perspective_set(float fovy, float aspect, float near, float far, float cam_factor);
+ 
+ /* 3D Projection between Window and World Space */
+ 
+diff --git a/source/blender/gpu/intern/gpu_matrix.cc b/source/blender/gpu/intern/gpu_matrix.cc
+index 4ccb28fedbd..893cbf3ac82 100644
+--- a/source/blender/gpu/intern/gpu_matrix.cc
++++ b/source/blender/gpu/intern/gpu_matrix.cc
+@@ -436,18 +436,20 @@ void GPU_matrix_ortho_2d_set(float left, float right, float bottom, float top)
+ }
+ 
+ void GPU_matrix_frustum_set(
+-    float left, float right, float bottom, float top, float near, float far)
++    float left, float right, float bottom, float top, float near, float far, float cam_factor)
+ {
+-  mat4_frustum_set(Projection, left, right, bottom, top, near, far);
++  /*SUNGREEN SET VIEW FRUSTUM*/
++  //mat4_frustum_set(Projection, left, right, bottom, top, near, far);
++  perspective_m4(Projection, left, right, bottom, top, near, far, cam_factor);
+   CHECKMAT(Projection);
+   gpu_matrix_state_active_set_dirty(true);
+ }
+ 
+-void GPU_matrix_perspective_set(float fovy, float aspect, float near, float far)
++void GPU_matrix_perspective_set(float fovy, float aspect, float near, float far, float cam_factor)
+ {
+   float half_height = tanf(fovy * (float)(M_PI / 360.0)) * near;
+   float half_width = half_height * aspect;
+-  GPU_matrix_frustum_set(-half_width, +half_width, -half_height, +half_height, near, far);
++  GPU_matrix_frustum_set(-half_width, +half_width, -half_height, +half_height, near, far, cam_factor);
+ }
+ 
+ void GPU_matrix_look_at(float eyeX,
+diff --git a/source/blender/makesdna/DNA_camera_types.h b/source/blender/makesdna/DNA_camera_types.h
+index 73a55edf05f..874bbe0e548 100644
+--- a/source/blender/makesdna/DNA_camera_types.h
++++ b/source/blender/makesdna/DNA_camera_types.h
+@@ -123,6 +123,8 @@ typedef struct Camera {
+ 
+   /** Runtime data (keep last). */
+   Camera_Runtime runtime;
++  float cam_factor;
++  char _pad2[4];
+ } Camera;
+ 
+ /* **************** CAMERA ********************* */
+diff --git a/source/blender/makesdna/DNA_view3d_types.h b/source/blender/makesdna/DNA_view3d_types.h
+index b8e2256c3c6..0df257d0f1e 100644
+--- a/source/blender/makesdna/DNA_view3d_types.h
++++ b/source/blender/makesdna/DNA_view3d_types.h
+@@ -356,6 +356,8 @@ typedef struct View3D {
+ 
+   /** Runtime evaluation data (keep last). */
+   View3D_Runtime runtime;
++  float cam_factor;
++  char _pad5[4];
+ } View3D;
+ 
+ /** #View3D.stereo3d_flag */
+diff --git a/source/blender/makesdna/DNA_xr_types.h b/source/blender/makesdna/DNA_xr_types.h
+index 2ce32a723a7..9490000dcb8 100644
+--- a/source/blender/makesdna/DNA_xr_types.h
++++ b/source/blender/makesdna/DNA_xr_types.h
+@@ -46,6 +46,8 @@ typedef struct XrSessionSettings {
+   float clip_start, clip_end;
+ 
+   int flag;
++  float cam_factor;
++  char _pad3[4];
+ } XrSessionSettings;
+ 
+ typedef enum eXrSessionFlag {
+diff --git a/source/blender/makesrna/intern/rna_camera.c b/source/blender/makesrna/intern/rna_camera.c
+index 9d0ee90de60..41c4b73f164 100644
+--- a/source/blender/makesrna/intern/rna_camera.c
++++ b/source/blender/makesrna/intern/rna_camera.c
+@@ -605,6 +605,14 @@ void RNA_def_camera(BlenderRNA *brna)
+       prop, "Orthographic Scale", "Orthographic Camera scale (similar to zoom)");
+   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
+ 
++  /*SUNGREEN RNA CAM_FACTOR*/
++  prop = RNA_def_property(srna, "cam_factor", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, NULL, "cam_factor");
++  RNA_def_property_range(prop, 0.0f, 1.0f);
++  RNA_def_property_ui_range(prop, 0.0f, 1.0f, 1, 3);
++  RNA_def_property_ui_text(prop, "Reverse factor", "Reverse factor");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
+   prop = RNA_def_property(srna, "display_size", PROP_FLOAT, PROP_DISTANCE);
+   RNA_def_property_float_sdna(prop, NULL, "drawsize");
+   RNA_def_property_range(prop, 0.01f, 1000.0f);
+diff --git a/source/blender/render/intern/initrender.c b/source/blender/render/intern/initrender.c
+index fb7f7270c13..9fc79e100bc 100644
+--- a/source/blender/render/intern/initrender.c
++++ b/source/blender/render/intern/initrender.c
+@@ -178,6 +178,7 @@ static void re_camera_params_get(Render *re, CameraParams *params)
+ 
+   re->clip_start = params->clip_start;
+   re->clip_end = params->clip_end;
++  re->cam_factor = params->cam_factor;
+ 
+   re->viewplane = params->viewplane;
+ }
+@@ -221,9 +222,10 @@ void RE_GetCameraWindow(struct Render *re, struct Object *camera, float r_winmat
+ void RE_GetCameraWindowWithOverscan(struct Render *re, float overscan, float r_winmat[4][4])
+ {
+   CameraParams params;
+-  params.is_ortho = re->winmat[3][3] != 0.0f;
++  /*SUNGREEN*/ params.is_ortho = re->winmat[3][3] == 1.0f;
+   params.clip_start = re->clip_start;
+   params.clip_end = re->clip_end;
++  params.cam_factor = re->cam_factor;
+   params.viewplane = re->viewplane;
+ 
+   overscan *= max_ff(BLI_rctf_size_x(&params.viewplane), BLI_rctf_size_y(&params.viewplane));
+diff --git a/source/blender/render/intern/pipeline.c b/source/blender/render/intern/pipeline.c
+index f484977d2b4..b327d95639f 100644
+--- a/source/blender/render/intern/pipeline.c
++++ b/source/blender/render/intern/pipeline.c
+@@ -997,7 +997,8 @@ void RE_SetWindow(Render *re, const rctf *viewplane, float clip_start, float cli
+                  re->viewplane.ymin,
+                  re->viewplane.ymax,
+                  re->clip_start,
+-                 re->clip_end);
++                 re->clip_end,
++                 re->cam_factor);
+ }
+ 
+ void RE_SetOrtho(Render *re, const rctf *viewplane, float clip_start, float clip_end)
+diff --git a/source/blender/render/intern/render_types.h b/source/blender/render/intern/render_types.h
+index 6be5fb4792c..8cfca7e0f2a 100644
+--- a/source/blender/render/intern/render_types.h
++++ b/source/blender/render/intern/render_types.h
+@@ -156,6 +156,8 @@ struct Render {
+   /* TODO replace by a whole draw manager. */
+   void *gl_context;
+   void *gpu_context;
++  float cam_factor;
++  //char pad[4];
+ };
+ 
+ /* **************** defines ********************* */
+diff --git a/source/blender/windowmanager/xr/intern/wm_xr_draw.c b/source/blender/windowmanager/xr/intern/wm_xr_draw.c
+index 1b1ea6c1e61..6f0436f2545 100644
+--- a/source/blender/windowmanager/xr/intern/wm_xr_draw.c
++++ b/source/blender/windowmanager/xr/intern/wm_xr_draw.c
+@@ -66,7 +66,8 @@ static void wm_xr_draw_matrices_create(const wmXrDrawData *draw_data,
+                      draw_view->fov.angle_up,
+                      draw_view->fov.angle_down,
+                      session_settings->clip_start,
+-                     session_settings->clip_end);
++                     session_settings->clip_end,
++                     session_settings->cam_factor);
+ 
+   float eye_mat[4][4];
+   float base_mat[4][4];
+@@ -140,6 +141,7 @@ void wm_xr_draw_view(const GHOST_XrDrawViewInfo *draw_view, void *customdata)
+                                   winmat,
+                                   settings->clip_start,
+                                   settings->clip_end,
++                                  settings->cam_factor,
+                                   false,
+                                   true,
+                                   NULL,
