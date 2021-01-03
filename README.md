@@ -1,4 +1,4 @@
-# Предистория
+# Предыстория
 https://blenderartists.org/t/reverse-perspective-rendering/1213342
 
 # rcam
