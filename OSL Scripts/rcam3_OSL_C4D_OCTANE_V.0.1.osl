@@ -1,0 +1,14 @@
+shader OslReverseCamera(
+	float reverse_factor = 1 [[float min = -1,float max = 1, string desc = "Reverse factor"]],
+	float zoom_factor = 1 [[float min = 0,float max = 1, string desc = "Zoom factor"]],
+	   output point  pos  = P,
+	   output vector dir  = 0,
+	   output float  tMax = 1.0/0.0)
+{
+    float uv[2];
+    getattribute("hit:uv", 2, uv);
+    vector right = cross(I, N);
+    float z=10.2/zoom_factor;
+    pos = point("camera", z*(uv[0] - 0.5), z*(uv[1] - 0.5), -0.1);
+    dir = I + (right * (uv[0] - .5) + N * (uv[1] - .5))*reverse_factor;
+}

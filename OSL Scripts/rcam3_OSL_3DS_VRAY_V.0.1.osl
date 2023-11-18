@@ -1,0 +1,29 @@
+shader ReverseCameraVRAY_TiltShift(
+	float reverseFactor = 0 [[ string label = "Reverse factor"]],
+	float focusDistance = 3 [[ string label = "Focus distance", float min = 0.01, float max = 1e10, float sliderexponent = 4]],
+	float tilt_x = 0 [[ string label = "Tilt X"]],
+	float tilt_y = 0 [[ string label = "Tilt Y"]],
+	float shift_x = 0 [[ string label = "Shift X"]],
+	float shift_y = 0 [[ string label = "Shift Y"]],
+	float shift_pos_x = 0 [[ string label = "Shift Position X"]],
+	float shift_pos_y = 0 [[ string label = "Shift Position Y"]],
+	float shift_cam_x = 0 [[ string label = "Shift Camera X"]],
+	float shift_cam_y = 0 [[ string label = "Shift Camera Y"]],
+	output point pos = 0,
+	output vector dir = 0,
+	output float maxt = 1e18)
+{
+	float pa;
+	int res[2];
+	getattribute("camera:pixelaspect", pa);
+	getattribute("camera:resolution", res);
+
+	float u1 = 2 * (u - .5);
+	float v1 = 2 * (v - .5) * pa * res[1] / res[0];
+	point target = point(u1+shift_x+shift_cam_x,v1+shift_y+shift_cam_y, tilt_x*u1+tilt_y*v1-1.0)*focusDistance;
+	pos = point(u1+shift_pos_x+shift_cam_x, v1+shift_pos_y+shift_cam_y, tilt_x*u1+tilt_y*v1)*(1.0 - reverseFactor)*focusDistance;
+	dir = target - pos;
+
+	pos = transform("camera", "world", pos);
+	dir = transform("camera", "world", dir);
+}

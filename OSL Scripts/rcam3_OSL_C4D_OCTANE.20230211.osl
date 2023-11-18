@@ -1,0 +1,46 @@
+shader ReverseCamera(
+	float fov = 45 [[ float min = 0.001, float max = 180, float slidermin = 1, float sliderexponent = 4]],
+  float aperture = 0.01 [[ float min = 0, float max = 1, float sliderexponent = 4]],
+  float focalDepth = 3 [[ float min = 0.01, float max = 1e10, float sliderexponent = 4]],
+  int focalClipNear = 0 [[ int min = 0, int max = 1]],
+  float reverseFactor = 0 [[ float min = 0.0, float max = 12]],
+  output point pos = 0,
+  output vector dir = 0,
+  output float clip[2] = {0.001,10000}
+)
+{
+	getattribute("camera:clip", clip);
+
+	point focal = P + I*focalDepth;
+	focal = transform("world","camera",focal);
+	float focalCamera = abs(focal[2]);
+		float uv[2];
+		getattribute("hit:uv", 2, uv);
+    float u1 = 2 * (uv[0] - .5);
+    float v1 = 2 * (uv[1] - .5);
+    float invF = tan(radians(min(fov, 179.99) / 2));
+
+    pos = point(u1,v1,0)*reverseFactor;
+    dir = vector(u1 * invF, v1 * invF, -1.0);
+
+    if (aperture > 0)
+    {
+        float dof_uv[2];
+        getattribute("camera:dofrandom", dof_uv);
+        float dofsn, dofcs;
+        sincos(dof_uv[1] * M_2PI, dofsn, dofcs);
+        float dofR = aperture * sqrt(dof_uv[0]);
+        pos = pos + point(dofcs*dofR, dofsn*dofR, 0);
+		}
+
+//////    point target = dir * focalDepth / abs(dir[2]);
+	point target = dir * focalCamera;
+    dir = target - pos;
+    pos = transform("camera", "world", pos);
+    dir = transform("camera", "world", dir);
+
+	if(focalClipNear==1)
+	{
+		clip[1] = focalCamera;
+	}
+}
