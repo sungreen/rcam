@@ -37,4 +37,6 @@ rcam3-cycles
 * blender 4.1 windows https://disk.yandex.ru/d/RiLNM1LDRzikhA
 * blender 4.1 linux https://disk.yandex.ru/d/57mqS_k2-e58-A
 
-
+# OSL Camera
+В качестве примера указанный концепт реализован для 3D редактора Blender в виде бинарных сборок с модифицированными настройками камеры и рендеров Cycles и EEVEE, а также в виде отдельных OSL скриптов для связок 3D редактора и внешнего рендера, таких как 3ds max + VRAY или Cinema 4d + OctaneRender, поддерживающих OSL сценарии для настройки камеры https://github.com/sungreen/rcam/tree/master/OSL%20Scripts .
+Сейчас для Blender реализована возможность динамической перспективы только в окне 3D редактора, для рендера Cycles и частично EEVEE без поддержки OSL Camera Script.
