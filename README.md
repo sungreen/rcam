@@ -36,11 +36,15 @@
 * blender 3.4 windows https://disk.yandex.ru/d/CVcwmEnbJILRSw
 * blender 3.5 windows https://disk.yandex.ru/d/dWmnPHA_rHkbNw
 
-###rcam3-cycles
+### rcam3-cycles
 * blender 3.6 windows https://disk.yandex.ru/d/vJXhUvW170x8Ow
 * blender 3.6 linux https://disk.yandex.ru/d/av1psZpl4O73Lw 
 * blender 4.1 windows https://disk.yandex.ru/d/RiLNM1LDRzikhA
 * blender 4.1 linux https://disk.yandex.ru/d/57mqS_k2-e58-A
+
+### rcam4-cycles_eevee
+* blender 4.1 windows (upload 2023/12)
+* blender 4.1 linux (upload 2023/12)
 
 ## OSL Camera
 В качестве примера указанный концепт реализован для 3D редактора Blender в виде бинарных сборок с модифицированными настройками камеры и рендеров Cycles и EEVEE, а также в виде отдельных OSL скриптов для связок 3D редактора и внешнего рендера, таких как 3ds max + VRAY или Cinema 4d + OctaneRender, поддерживающих OSL сценарии для настройки камеры https://github.com/sungreen/rcam/tree/master/OSL%20Scripts .
