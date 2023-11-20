@@ -43,7 +43,7 @@
 * blender 4.1 linux https://disk.yandex.ru/d/57mqS_k2-e58-A
 
 ### rcam4-cycles_eevee
-* blender 4.1 windows (upload 2023/12)
+* blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
 * blender 4.1 linux (upload 2023/12)
 
 ## OSL Camera
