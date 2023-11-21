@@ -22,11 +22,11 @@ make update
 
 Скачайте файл с патчем rcam4
 
-wget https://raw.githubusercontent.com/sungreen/rcam/master/rcam4_410_20231120.patch
+wget https://raw.githubusercontent.com/sungreen/rcam/master/rcam4_410_20231120.diff
 
 Примените патч к коду Blender
 
-patch -p1 < rcam4_410_20231120.patch
+patch -p1 < rcam4_410_20231120.diff
 
 Продолжите сборку Blender
 
