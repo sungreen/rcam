@@ -5,6 +5,42 @@
   
 ![Демонстрация камеры с динамической перспективой](https://github.com/sungreen/rcam/blob/master/Demo/dynamic_perspective.gif)
 
+## Сборка
+Для сборки Blender необходимо ознакомиться с инструкциями, которые  с официального сайта [Building Blender](https://wiki.blender.org/wiki/Building_Blender)
+
+Загрузите последнюю версию исходного кода с сайта project.blender.org.
+mkdir ~/blender-git
+cd ~/blender-git
+git clone https://projects.blender.org/blender/blender.git
+cd blender
+make update
+
+Скачайте файл с патчем rcam4
+wget https://github.com/sungreen/rcam/blob/master/rcam4_YYYYMMDD.patch
+
+Примените патч к коду Blender
+patch -p1 < rcam4_YYYYMMDD.patch
+
+Продолжите сборку Blender
+make
+
+## Готовые сборки Blender с патчем rcam/rcam3/rcam4
+
+Распространение сборок неочень хорошая идея с точки зрения безопасности. Тем неменее они есть и их можнос скачать
+### rcam3-eevee
+* blender 3.4 windows https://disk.yandex.ru/d/CVcwmEnbJILRSw
+* blender 3.5 windows https://disk.yandex.ru/d/dWmnPHA_rHkbNw
+
+### rcam3-cycles
+* blender 3.6 windows https://disk.yandex.ru/d/vJXhUvW170x8Ow
+* blender 3.6 linux https://disk.yandex.ru/d/av1psZpl4O73Lw 
+* blender 4.1 windows https://disk.yandex.ru/d/RiLNM1LDRzikhA
+* blender 4.1 linux https://disk.yandex.ru/d/57mqS_k2-e58-A
+
+### rcam4-cycles_eevee
+* blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
+* blender 4.1 linux (upload 2023/12)
+
 ## Предистория
 * https://blenderartists.org/t/reverse-perspective-rendering/1213342
 * http://paulbourke.net/miscellaneous/reverseperspective/
@@ -30,21 +66,9 @@
 ## rcam3-cycles
 Реализован эффект обратной персперктивы для рендера cycles. Это дает возможность делать более корректные рендеры теней, преломления и отражения света. Настройки камеры независят от ***Clip Start*** и ***Clip End***, а регулируются величиной эффекта перспективы и обратной перспективы при отрицательных значениях. Добавлены настройки tilt&shift, что существенно обогащает политру настроеек.
 
-## Сборки
-Распространение сборок неочень хорошая идея с точки зрения безопасности. Тем неменее они есть и их можнос скачать
-### rcam3-eevee
-* blender 3.4 windows https://disk.yandex.ru/d/CVcwmEnbJILRSw
-* blender 3.5 windows https://disk.yandex.ru/d/dWmnPHA_rHkbNw
-
-### rcam3-cycles
-* blender 3.6 windows https://disk.yandex.ru/d/vJXhUvW170x8Ow
-* blender 3.6 linux https://disk.yandex.ru/d/av1psZpl4O73Lw 
-* blender 4.1 windows https://disk.yandex.ru/d/RiLNM1LDRzikhA
-* blender 4.1 linux https://disk.yandex.ru/d/57mqS_k2-e58-A
-
-### rcam4-cycles_eevee
-* blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
-* blender 4.1 linux (upload 2023/12)
+## rcam4
+Объединены ранее реализованные эффекты обратной перспективы для EEVEE и Cycles в одном патче. Сейчас для Blender реализована возможность динамической перспективы только в окне 3D редактора, для рендера Cycles и частично EEVEE без поддержки OSL Camera Script.
+* https://youtu.be/Q2toaIhXuNs  rcam4
 
 ## OSL Camera
 В качестве примера указанный концепт реализован для 3D редактора Blender в виде бинарных сборок с модифицированными настройками камеры и рендеров Cycles и EEVEE, а также в виде отдельных OSL скриптов для связок 3D редактора и внешнего рендера, таких как 3ds max + VRAY или Cinema 4d + OctaneRender, поддерживающих OSL сценарии для настройки камеры https://github.com/sungreen/rcam/tree/master/OSL%20Scripts .
@@ -52,6 +76,3 @@
 
 * https://youtu.be/q3kCHOetuak  3ds max + VRAY
 * https://youtu.be/lpp2MyjmMDk  C4D + OCTANE
-* https://youtu.be/Q2toaIhXuNs  rcam4
-
-
