@@ -6,7 +6,7 @@
 ![Демонстрация камеры с динамической перспективой](https://github.com/sungreen/rcam/blob/master/Demo/dynamic_perspective.gif)
 
 ## Сборка
-Для сборки Blender необходимо ознакомиться с инструкциями, которые  с официального сайта [Building Blender](https://wiki.blender.org/wiki/Building_Blender)
+Для сборки Blender необходимо ознакомиться с инструкциями с официального сайта [Building Blender](https://wiki.blender.org/wiki/Building_Blender)
 
 Загрузите последнюю версию исходного кода с сайта project.blender.org.
 mkdir ~/blender-git
