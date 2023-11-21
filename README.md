@@ -9,19 +9,27 @@
 Для сборки Blender необходимо ознакомиться с инструкциями с официального сайта [Building Blender](https://wiki.blender.org/wiki/Building_Blender)
 
 Загрузите последнюю версию исходного кода с сайта project.blender.org.
+
 mkdir ~/blender-git
+
 cd ~/blender-git
+
 git clone https://projects.blender.org/blender/blender.git
+
 cd blender
+
 make update
 
 Скачайте файл с патчем rcam4
+
 wget https://github.com/sungreen/rcam/blob/master/rcam4_YYYYMMDD.patch
 
 Примените патч к коду Blender
+
 patch -p1 < rcam4_YYYYMMDD.patch
 
 Продолжите сборку Blender
+
 make
 
 ## Готовые сборки Blender с патчем rcam/rcam3/rcam4
