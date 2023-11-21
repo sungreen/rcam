@@ -22,7 +22,7 @@ make update
 
 Скачайте файл с патчем rcam4
 
-wget https://github.com/sungreen/rcam/blob/master/rcam4_410_20231120.patch
+wget https://raw.githubusercontent.com/sungreen/rcam/master/rcam4_410_20231120.patch
 
 Примените патч к коду Blender
 
