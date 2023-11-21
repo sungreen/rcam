@@ -32,6 +32,10 @@ patch -p1 < rcam4_YYYYMMDD.patch
 
 make
 
+## Использование
+* rcam3 (устарело)
+* rcam4 https://youtu.be/Q2toaIhXuNs
+
 ## Готовые сборки Blender с патчем rcam3/rcam4
 
 Распространение сборок неочень хорошая идея с точки зрения безопасности. Тем неменее они есть и их можнос скачать
@@ -76,11 +80,9 @@ make
 
 ## rcam4
 Объединены ранее реализованные эффекты обратной перспективы для EEVEE и Cycles в одном патче. Сейчас для Blender реализована возможность динамической перспективы только в окне 3D редактора, для рендера Cycles и частично EEVEE без поддержки OSL Camera Script.
-* https://youtu.be/Q2toaIhXuNs  rcam4
 
 ## OSL Camera
 В качестве примера указанный концепт реализован для 3D редактора Blender в виде бинарных сборок с модифицированными настройками камеры и рендеров Cycles и EEVEE, а также в виде отдельных OSL скриптов для связок 3D редактора и внешнего рендера, таких как 3ds max + VRAY или Cinema 4d + OctaneRender, поддерживающих OSL сценарии для настройки камеры https://github.com/sungreen/rcam/tree/master/OSL%20Scripts .
-Сейчас для Blender реализована возможность динамической перспективы только в окне 3D редактора, для рендера Cycles и частично EEVEE без поддержки OSL Camera Script.
 
 * https://youtu.be/q3kCHOetuak  3ds max + VRAY
 * https://youtu.be/lpp2MyjmMDk  C4D + OCTANE
