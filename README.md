@@ -51,7 +51,7 @@ make
 
 ### rcam4-cycles_eevee
 * blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
-* blender 4.1 linux (upload 2023/12)
+* blender 4.1 linux https://disk.yandex.ru/d/QKdIrgmmgeJGgA
 
 ## Предистория
 * https://blenderartists.org/t/reverse-perspective-rendering/1213342
