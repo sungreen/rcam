@@ -53,6 +53,10 @@ make
 * blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
 * blender 4.1 linux https://disk.yandex.ru/d/QKdIrgmmgeJGgA
 
+### rcam4 blender with anisotropy perspective
+* blender 4.4 windows https://disk.yandex.ru/d/r4PRvoGa4friYA
+  
+
 ## Предистория
 * https://blenderartists.org/t/reverse-perspective-rendering/1213342
 * http://paulbourke.net/miscellaneous/reverseperspective/
