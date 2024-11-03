@@ -10,7 +10,7 @@
 
 ![Демонстрация камеры с анизотропной перспективой](https://github.com/sungreen/rcam/blob/master/Demo/anisotropy_perspective.gif)
 
-![Видео на рутубе](https://rutube.ru/video/86346a12c6ffc02ba9d3c53ad013cd6d/)
+[Видео на рутубе](https://rutube.ru/video/86346a12c6ffc02ba9d3c53ad013cd6d/)
   
 Для сборки Blender необходимо ознакомиться с инструкциями с официального сайта [Building Blender](https://wiki.blender.org/wiki/Building_Blender)
 
