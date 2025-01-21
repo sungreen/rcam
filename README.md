@@ -95,5 +95,6 @@ make
 ## OSL Camera
 В качестве примера указанный концепт реализован для 3D редактора Blender в виде бинарных сборок с модифицированными настройками камеры и рендеров Cycles и EEVEE, а также в виде отдельных OSL скриптов для связок 3D редактора и внешнего рендера, таких как 3ds max + VRAY или Cinema 4d + OctaneRender, поддерживающих OSL сценарии для настройки камеры https://github.com/sungreen/rcam/tree/master/OSL%20Scripts .
 
-* https://youtu.be/q3kCHOetuak  3ds max + VRAY
+* https://youtu.be/q3kCHOetuak  3DS MAX + VRAY
+* https://youtu.be/Kx5FU811b3g  3DS MAX + OCTANE
 * https://youtu.be/lpp2MyjmMDk  C4D + OCTANE
