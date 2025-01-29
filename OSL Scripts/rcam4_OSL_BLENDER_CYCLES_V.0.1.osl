@@ -1,0 +1,16 @@
+shader dynamic_perspective(
+    float aspect = 16.0 / 9.0,
+    float reverse = 0.0,
+    float focus = 1.0,
+    output vector pos = 0.0,
+    output vector dir = 0.0,
+    output float T = 1.0
+) {
+    
+    float w = 1.0;
+    float h = 1.0 / aspect;
+
+    point target = point(2.0 * (P.x - 0.5) * w, 2.0 * (P.y - 0.5)  * h, 0.0) * focus;
+    pos = point(2.0 * (P.x - 0.5) * w, 2.0 * (P.y - 0.5)  * h, -1.0) * (1.0-reverse) * focus;
+    dir = normalize(target - pos);
+}
