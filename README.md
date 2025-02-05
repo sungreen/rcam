@@ -59,8 +59,8 @@ make
 * blender 4.1 windows https://disk.yandex.ru/d/0YmJ_aZftWXIzA
 * blender 4.1 linux https://disk.yandex.ru/d/QKdIrgmmgeJGgA
 
-### rcam4 blender with anisotropy perspective
-* blender 4.4 windows https://disk.yandex.ru/d/r4PRvoGa4friYA
+### rcam4 blender with anisotropy perspective (update 02/02/2025)
+* blender 4.4 windows https://disk.yandex.ru/d/aphYCZ5Suw1buQ
   
 
 ## Предистория
@@ -98,3 +98,4 @@ make
 * https://youtu.be/q3kCHOetuak  3DS MAX + VRAY
 * https://youtu.be/Kx5FU811b3g  3DS MAX + OCTANE
 * https://youtu.be/lpp2MyjmMDk  C4D + OCTANE
+* https://rutube.ru/video/b9b7e20d2dfde00e2636568994393a48/ Blender + Cycles OSL Camera 
