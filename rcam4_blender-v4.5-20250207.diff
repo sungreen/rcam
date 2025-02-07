@@ -1,0 +1,1554 @@
+diff --git a/intern/cycles/blender/addon/properties.py b/intern/cycles/blender/addon/properties.py
+index 35379648a3b..081ac72857e 100644
+--- a/intern/cycles/blender/addon/properties.py
++++ b/intern/cycles/blender/addon/properties.py
+@@ -1147,6 +1147,42 @@ class CyclesMaterialSettings(bpy.types.PropertyGroup):
+         min=0.001, max=1000.0, soft_min=0.1, soft_max=10.0, precision=4
+     )
+ 
++    orthodox_tilt_x: FloatProperty(
++        name="Orthodox Tilt X",
++        description="Orthodox Tilt X",
++        default=0.0,
++    )
++
++    orthodox_tilt_y: FloatProperty(
++        name="Orthodox Tilt Y",
++        description="Orthodox Tilt Y",
++        default=0.0,
++    )
++
++    orthodox_shift_x: FloatProperty(
++        name="Orthodox Shift X",
++        description="Orthodox Shift X",
++        default=0.0,
++    )
++
++    orthodox_shift_y: FloatProperty(
++        name="Orthodox Shift Y",
++        description="Orthodox Shift Y",
++        default=0.0,
++    )
++
++    orthodox_factor: FloatProperty(
++        name="Orthodox Factor",
++        description="Orthodox Factor",
++        default=0.0,
++    )
++
++    orthodox_distance: FloatProperty(
++        name="Orthodox Distance",
++        description="Orthodox Distance",
++        default=10.0,
++    )
++
+     @classmethod
+     def register(cls):
+         bpy.types.Material.cycles = PointerProperty(
+diff --git a/intern/cycles/blender/camera.cpp b/intern/cycles/blender/camera.cpp
+index 25683ec4770..601b25b2676 100644
+--- a/intern/cycles/blender/camera.cpp
++++ b/intern/cycles/blender/camera.cpp
+@@ -77,6 +77,14 @@ class BlenderCamera {
+   float central_cylindrical_range_v_max = 1.0f;
+   float central_cylindrical_radius = 1.0f;
+ 
++  /* Orthodox properties. */
++  float orthodox_distance = 10.0f;
++  float orthodox_factor = 0.0f;
++  float orthodox_tilt_x = 0.0f;
++  float orthodox_tilt_y = 0.0f;
++  float orthodox_shift_x = 0.0f;
++  float orthodox_shift_y = 0.0f;
++
+   enum { AUTO, HORIZONTAL, VERTICAL } sensor_fit = AUTO;
+   float sensor_width = 36.0f;
+   float sensor_height = 24.0f;
+@@ -131,6 +139,26 @@ static float blender_camera_focal_distance(BL::RenderEngine &b_engine,
+   return fabsf(dot(view_dir, dof_dir));
+ }
+ 
++static float blender_camera_orthodox_distance(BL::RenderEngine &b_engine,
++                                              BL::Object &b_ob,
++                                              BL::Camera &b_camera,
++                                              BlenderCamera *bcam)
++{
++  BL::Object obj = b_camera.orthodox_object();
++
++  if (!obj) {
++    return b_camera.orthodox_distance();
++  }
++
++  Transform obj_mat = get_transform(obj.matrix_world());
++  BL::Array<float, 16> b_ob_matrix;
++  b_engine.camera_model_matrix(b_ob, bcam->use_spherical_stereo, b_ob_matrix);
++  const Transform obmat = transform_clear_scale(get_transform(b_ob_matrix));
++  const float3 view_dir = normalize(transform_get_column(&obmat, 2));
++  const float3 orth_dir = transform_get_column(&obmat, 3) - transform_get_column(&obj_mat, 3);
++  return fabsf(dot(view_dir, orth_dir));
++}
++
+ static PanoramaType blender_panorama_type_to_cycles(const BL::Camera::panorama_type_enum type)
+ {
+   switch (type) {
+@@ -167,6 +195,9 @@ static void blender_camera_from_object(BlenderCamera *bcam,
+     bcam->farclip = b_camera.clip_end();
+ 
+     switch (b_camera.type()) {
++      case BL::Camera::type_ORTHODOX:
++        bcam->type = CAMERA_ORTHODOX;
++        break;
+       case BL::Camera::type_ORTHO:
+         bcam->type = CAMERA_ORTHOGRAPHIC;
+         break;
+@@ -204,6 +235,13 @@ static void blender_camera_from_object(BlenderCamera *bcam,
+     bcam->central_cylindrical_range_v_max = b_camera.central_cylindrical_range_v_max();
+     bcam->central_cylindrical_radius = b_camera.central_cylindrical_radius();
+ 
++    bcam->orthodox_tilt_x = b_camera.orthodox_tilt_x();
++    bcam->orthodox_tilt_y = b_camera.orthodox_tilt_y();
++    bcam->orthodox_shift_x = b_camera.orthodox_shift_x();
++    bcam->orthodox_shift_y = b_camera.orthodox_shift_y();
++    bcam->orthodox_factor = b_camera.orthodox_factor();
++    bcam->orthodox_distance = blender_camera_orthodox_distance(b_engine, b_ob, b_camera, bcam);
++
+     bcam->interocular_distance = b_camera.stereo().interocular_distance();
+     if (b_camera.stereo().convergence_mode() == BL::CameraStereoData::convergence_mode_PARALLEL) {
+       bcam->convergence_distance = FLT_MAX;
+@@ -361,7 +399,7 @@ static void blender_camera_viewplane(BlenderCamera *bcam,
+   }
+ 
+   /* modify aspect for orthographic scale */
+-  if (bcam->type == CAMERA_ORTHOGRAPHIC) {
++  if (bcam->type == CAMERA_ORTHOGRAPHIC || bcam->type == CAMERA_ORTHODOX) {
+     xaspect = xaspect * bcam->ortho_scale / (*aspectratio * 2.0f);
+     yaspect = yaspect * bcam->ortho_scale / (*aspectratio * 2.0f);
+     if (aspectratio != nullptr) {
+@@ -484,6 +522,13 @@ static void blender_camera_sync(Camera *cam,
+   cam->set_fisheye_polynomial_k3(bcam->fisheye_polynomial_k3);
+   cam->set_fisheye_polynomial_k4(bcam->fisheye_polynomial_k4);
+ 
++  cam->set_orthodox_tilt_x(bcam->orthodox_tilt_x);
++  cam->set_orthodox_tilt_y(bcam->orthodox_tilt_y);
++  cam->set_orthodox_shift_x(bcam->orthodox_shift_x);
++  cam->set_orthodox_shift_y(bcam->orthodox_shift_y);
++  cam->set_orthodox_factor(bcam->orthodox_factor);
++  cam->set_orthodox_distance(bcam->orthodox_distance);
++
+   cam->set_longitude_min(bcam->longitude_min);
+   cam->set_longitude_max(bcam->longitude_max);
+ 
+@@ -531,7 +576,7 @@ static void blender_camera_sync(Camera *cam,
+   array<Transform> motion;
+   motion.resize(bcam->motion_steps, cam->get_matrix());
+   cam->set_motion(motion);
+-  cam->set_use_perspective_motion(false);
++  // cam->set_use_perspective_motion(false);
+ 
+   cam->set_shuttertime(bcam->shuttertime);
+   cam->set_fov_pre(cam->get_fov());
+@@ -696,11 +741,11 @@ void BlenderSync::sync_camera_motion(BL::RenderSettings &b_render,
+       }
+       else if (motion_time == -1.0f) {
+         cam->set_fov_pre(fov);
+-        cam->set_use_perspective_motion(true);
++        // cam->set_use_perspective_motion(true);
+       }
+       else if (motion_time == 1.0f) {
+         cam->set_fov_post(fov);
+-        cam->set_use_perspective_motion(true);
++        // cam->set_use_perspective_motion(true);
+       }
+     }
+   }
+diff --git a/intern/cycles/kernel/camera/camera.h b/intern/cycles/kernel/camera/camera.h
+index 01c8efcfb0e..35179aa40af 100644
+--- a/intern/cycles/kernel/camera/camera.h
++++ b/intern/cycles/kernel/camera/camera.h
+@@ -228,6 +228,107 @@ ccl_device void camera_sample_orthographic(KernelGlobals kg,
+   ray->tmax = kernel_data.cam.cliplength;
+ }
+ 
++/* Orthodox Camera */
++ccl_device void camera_sample_orthodox(KernelGlobals kg,
++                                       const float2 raster_xy,
++                                       const float2 rand_lens,
++                                       ccl_private Ray *ray)
++{
++  /* create ray form raster position */
++  const ProjectionTransform rastertocamera = kernel_data.cam.rastertocamera;
++
++  float3 Pcam = transform_perspective(&rastertocamera,
++                                      make_float3(raster_xy.x, raster_xy.y, 0.0f));
++  /* orthodox cycles transform */
++  float orthodox_tilt_x = kernel_data.cam.orthodox_tilt_x;
++  float orthodox_tilt_y = kernel_data.cam.orthodox_tilt_y;
++  float orthodox_shift_x = kernel_data.cam.orthodox_shift_x;
++  float orthodox_shift_y = kernel_data.cam.orthodox_shift_y;
++  float orthodox_factor = kernel_data.cam.orthodox_factor;
++  float orthodox_distance = kernel_data.cam.orthodox_distance;
++  float nearClip = kernel_data.cam.nearclip;
++  float farClip = kernel_data.cam.cliplength + nearClip;
++  //  float width = kernel_data.cam.sensorwidth;
++
++  float Zf = -farClip;
++  float Zn = -nearClip;
++  float Zb = -orthodox_distance;
++  // float Xr = right - orthodox_shift_x;
++  // float Xl = left - orthodox_shift_x;
++  // float Yb = bottom - orthodox_shift_y;
++  // float Yt = top - orthodox_shift_y;
++  float Zq = 0.0f;
++  float Kf = 1.0f - orthodox_factor;
++  float tmax = farClip;
++  float tmin = nearClip;
++
++  if (orthodox_factor != 0.0f) {
++    Zq = Zb * (orthodox_factor - 1.0f) / orthodox_factor;
++    if (orthodox_factor > 0.0f) {
++      if (Zn > Zq - 0.001f)
++        Zn = Zq - 0.001f;
++      tmin = -Zn;
++    }
++    else {
++      if (Zf < Zq + 0.001f)
++        Zf = Zq + 0.001f;
++      tmax = -Zf - nearClip;
++    }
++  }
++
++  Pcam.z = 0.0f;
++
++  /* modify ray for depth of field */
++  const float aperturesize = kernel_data.cam.aperturesize;
++
++  float3 aperture_offset = make_float3(0.0f, 0.0f, 0.0f);
++
++  if (aperturesize > 0.0f) {
++    float2 offset = camera_sample_aperture(&kernel_data.cam, rand_lens) * aperturesize;
++    aperture_offset = make_float3(offset.x, offset.y, 0.0f);
++  }
++
++  /* compute point on plane of focus */
++
++  float3 orthodox_offset = make_float3(0.0f, 0.0f, orthodox_distance);
++  float3 shift_tilt_offset = make_float3(
++      -orthodox_shift_x, -orthodox_shift_y, orthodox_tilt_x * Pcam.x + orthodox_tilt_y * Pcam.y);
++  float3 V = Pcam + orthodox_offset + shift_tilt_offset;
++
++  float3 P = (Pcam + shift_tilt_offset) * Kf + aperture_offset;
++  float3 D = normalize(V - P);
++
++  /* transform ray from camera to world */
++  Transform cameratoworld = kernel_data.cam.cameratoworld;
++
++  if (kernel_data.cam.num_motion_steps) {
++    transform_motion_array_interpolate(&cameratoworld,
++                                       kernel_data_array(camera_motion),
++                                       kernel_data.cam.num_motion_steps,
++                                       ray->time);
++  }
++
++  ray->P = transform_point(&cameratoworld, P);
++  ray->D = normalize(transform_direction(&cameratoworld, D));
++
++#ifdef __RAY_DIFFERENTIALS__
++  /* ray differential */
++  differential3 dP;
++  dP.dx = make_float3(kernel_data.cam.dx);
++  dP.dy = make_float3(kernel_data.cam.dx);
++
++  ray->dP = differential_make_compact(dP);
++  ray->dD = differential_zero_compact();
++#endif
++
++  /* clipping */
++  // ray->tmin = 0.0f;
++  ray->tmax = kernel_data.cam.cliplength;
++  ray->tmin = kernel_data.cam.nearclip;
++  // ray->tmin = tmin;
++  // ray->tmax = tmax;
++}
++
+ /* Panorama Camera */
+ 
+ ccl_device_inline float3 camera_panorama_direction(ccl_constant KernelCamera *cam,
+@@ -404,6 +505,9 @@ ccl_device_inline void camera_sample(KernelGlobals kg,
+   else if (kernel_data.cam.type == CAMERA_ORTHOGRAPHIC) {
+     camera_sample_orthographic(kg, raster, lens_uv, ray);
+   }
++  else if (kernel_data.cam.type == CAMERA_ORTHODOX) {
++    camera_sample_orthodox(kg, raster, lens_uv, ray);
++  }
+   else {
+     const ccl_global DecomposedTransform *cam_motion = kernel_data_array(camera_motion);
+     camera_sample_panorama(&kernel_data.cam, cam_motion, raster, lens_uv, ray);
+@@ -423,7 +527,7 @@ ccl_device_inline float camera_distance(KernelGlobals kg, const float3 P)
+   const Transform cameratoworld = kernel_data.cam.cameratoworld;
+   const float3 camP = make_float3(cameratoworld.x.w, cameratoworld.y.w, cameratoworld.z.w);
+ 
+-  if (kernel_data.cam.type == CAMERA_ORTHOGRAPHIC) {
++  if (kernel_data.cam.type == CAMERA_ORTHOGRAPHIC || kernel_data.cam.type == CAMERA_ORTHODOX) {
+     const float3 camD = make_float3(cameratoworld.x.z, cameratoworld.y.z, cameratoworld.z.z);
+     return fabsf(dot((P - camP), camD));
+   }
+@@ -445,7 +549,7 @@ ccl_device_inline float3 camera_direction_from_point(KernelGlobals kg, const flo
+ {
+   const Transform cameratoworld = kernel_data.cam.cameratoworld;
+ 
+-  if (kernel_data.cam.type == CAMERA_ORTHOGRAPHIC) {
++  if (kernel_data.cam.type == CAMERA_ORTHOGRAPHIC || kernel_data.cam.type == CAMERA_ORTHODOX) {
+     const float3 camD = make_float3(cameratoworld.x.z, cameratoworld.y.z, cameratoworld.z.z);
+     return -camD;
+   }
+diff --git a/intern/cycles/kernel/types.h b/intern/cycles/kernel/types.h
+index fb1de5507a7..ac3d7baab55 100644
+--- a/intern/cycles/kernel/types.h
++++ b/intern/cycles/kernel/types.h
+@@ -668,7 +668,7 @@ enum GuidingDirectionalSamplingType {
+ 
+ /* Camera Type */
+ 
+-enum CameraType { CAMERA_PERSPECTIVE, CAMERA_ORTHOGRAPHIC, CAMERA_PANORAMA };
++enum CameraType { CAMERA_PERSPECTIVE, CAMERA_ORTHOGRAPHIC, CAMERA_PANORAMA, CAMERA_ORTHODOX };
+ 
+ /* Panorama Type */
+ 
+@@ -1291,6 +1291,14 @@ struct KernelCamera {
+   float4 fisheye_lens_polynomial_coefficients;
+   float4 central_cylindrical_range;
+ 
++  /* orthodox */
++  float orthodox_tilt_x;
++  float orthodox_tilt_y;
++  float orthodox_shift_x;
++  float orthodox_shift_y;
++  float orthodox_factor;
++  float orthodox_distance;
++
+   /* stereo */
+   float interocular_offset;
+   float convergence_distance;
+diff --git a/intern/cycles/scene/camera.cpp b/intern/cycles/scene/camera.cpp
+index d0386273699..af95c38d413 100644
+--- a/intern/cycles/scene/camera.cpp
++++ b/intern/cycles/scene/camera.cpp
+@@ -75,6 +75,7 @@ NODE_DEFINE(Camera)
+   type_enum.insert("perspective", CAMERA_PERSPECTIVE);
+   type_enum.insert("orthograph", CAMERA_ORTHOGRAPHIC);
+   type_enum.insert("panorama", CAMERA_PANORAMA);
++  type_enum.insert("orthodox", CAMERA_ORTHODOX);
+   SOCKET_ENUM(camera_type, "Type", type_enum, CAMERA_PERSPECTIVE);
+ 
+   static NodeEnum panorama_type_enum;
+@@ -108,6 +109,13 @@ NODE_DEFINE(Camera)
+   SOCKET_FLOAT(central_cylindrical_range_v_min, "Central Cylindrical Range V Min", -1.0f);
+   SOCKET_FLOAT(central_cylindrical_range_v_max, "Central Cylindrical Range V Max", 1.0f);
+ 
++  SOCKET_FLOAT(orthodox_tilt_x, "Orthodox Tilt X", 0.0f);
++  SOCKET_FLOAT(orthodox_tilt_y, "Orthodox Tilt Y", 0.0f);
++  SOCKET_FLOAT(orthodox_shift_x, "Orthodox Shift X", 0.0f);
++  SOCKET_FLOAT(orthodox_shift_y, "Orthodox Shift Y", 0.0f);
++  SOCKET_FLOAT(orthodox_factor, "Orthodox Factor", 0.0f);
++  SOCKET_FLOAT(orthodox_distance, "Orthodox Distance", 10.0f);
++
+   static NodeEnum stereo_eye_enum;
+   stereo_eye_enum.insert("none", STEREO_NONE);
+   stereo_eye_enum.insert("left", STEREO_LEFT);
+@@ -149,7 +157,7 @@ NODE_DEFINE(Camera)
+   SOCKET_INT(full_width, "Full Width", 1024);
+   SOCKET_INT(full_height, "Full Height", 512);
+ 
+-  SOCKET_BOOLEAN(use_perspective_motion, "Use Perspective Motion", false);
++  // ***** SOCKET_BOOLEAN(use_perspective_motion, "Use Perspective Motion", false);
+ 
+   return type;
+ }
+@@ -161,7 +169,7 @@ Camera::Camera() : Node(get_node_type())
+   width = 1024;
+   height = 512;
+ 
+-  use_perspective_motion = false;
++  /* use_perspective_motion = false; */
+ 
+   shutter_curve.resize(RAMP_TABLE_SIZE);
+   for (int i = 0; i < shutter_curve.size(); ++i) {
+@@ -258,7 +266,7 @@ void Camera::update(Scene *scene)
+   if (camera_type == CAMERA_PERSPECTIVE) {
+     cameratoscreen = projection_perspective(fov, nearclip, farclip);
+   }
+-  else if (camera_type == CAMERA_ORTHOGRAPHIC) {
++  else if (camera_type == CAMERA_ORTHOGRAPHIC || camera_type == CAMERA_ORTHODOX) {
+     cameratoscreen = projection_orthographic(nearclip, farclip);
+   }
+   else {
+@@ -284,7 +292,7 @@ void Camera::update(Scene *scene)
+   worldtoraster = ndctoraster * worldtondc;
+ 
+   /* differentials */
+-  if (camera_type == CAMERA_ORTHOGRAPHIC) {
++  if (camera_type == CAMERA_ORTHOGRAPHIC || camera_type == CAMERA_ORTHODOX) {
+     dx = transform_perspective_direction(&rastertocamera, make_float3(1, 0, 0));
+     dy = transform_perspective_direction(&rastertocamera, make_float3(0, 1, 0));
+     full_dx = transform_perspective_direction(&full_rastertocamera, make_float3(1, 0, 0));
+@@ -386,7 +394,7 @@ void Camera::update(Scene *scene)
+     }
+ 
+     /* TODO(sergey): Support other types of camera. */
+-    if (use_perspective_motion && camera_type == CAMERA_PERSPECTIVE) {
++    if (/*use_perspective_motion &&*/ camera_type == CAMERA_PERSPECTIVE) {
+       const ProjectionTransform screentocamera_pre = projection_inverse(
+           projection_perspective(fov_pre, nearclip, farclip));
+       const ProjectionTransform screentocamera_post = projection_inverse(
+@@ -414,6 +422,14 @@ void Camera::update(Scene *scene)
+   /* anamorphic lens bokeh */
+   kcam->inv_aperture_ratio = 1.0f / aperture_ratio;
+ 
++  /* cycles orhodox */
++  kcam->orthodox_tilt_x = orthodox_tilt_x;
++  kcam->orthodox_tilt_y = orthodox_tilt_y;
++  kcam->orthodox_shift_x = orthodox_shift_x;
++  kcam->orthodox_shift_y = orthodox_shift_y;
++  kcam->orthodox_factor = orthodox_factor;
++  kcam->orthodox_distance = orthodox_distance;
++
+   /* panorama */
+   kcam->panorama_type = panorama_type;
+   kcam->fisheye_fov = fisheye_fov;
+@@ -585,7 +601,7 @@ float3 Camera::transform_raster_to_world(const float raster_x, const float raste
+      */
+     P += nearclip * D / Pclip.z;
+   }
+-  else if (camera_type == CAMERA_ORTHOGRAPHIC) {
++  else if (camera_type == CAMERA_ORTHOGRAPHIC || camera_type == CAMERA_ORTHODOX) {
+     D = make_float3(0.0f, 0.0f, 1.0f);
+     /* TODO(sergey): Aperture support? */
+     P = transform_perspective(&rastertocamera, make_float3(raster_x, raster_y, 0.0f));
+@@ -677,7 +693,7 @@ float Camera::world_to_raster_size(const float3 P)
+ {
+   float res = 1.0f;
+ 
+-  if (camera_type == CAMERA_ORTHOGRAPHIC) {
++  if (camera_type == CAMERA_ORTHOGRAPHIC || camera_type == CAMERA_ORTHODOX) {
+     res = min(len(full_dx), len(full_dy));
+ 
+     if (offscreen_dicing_scale > 1.0f) {
+diff --git a/intern/cycles/scene/camera.h b/intern/cycles/scene/camera.h
+index ff36fbbba10..cea43c3add1 100644
+--- a/intern/cycles/scene/camera.h
++++ b/intern/cycles/scene/camera.h
+@@ -86,6 +86,13 @@ class Camera : public Node {
+   NODE_SOCKET_API(float, fisheye_polynomial_k3)
+   NODE_SOCKET_API(float, fisheye_polynomial_k4)
+ 
++  NODE_SOCKET_API(float, orthodox_tilt_x)
++  NODE_SOCKET_API(float, orthodox_tilt_y)
++  NODE_SOCKET_API(float, orthodox_shift_x)
++  NODE_SOCKET_API(float, orthodox_shift_y)
++  NODE_SOCKET_API(float, orthodox_factor)
++  NODE_SOCKET_API(float, orthodox_distance)
++
+   NODE_SOCKET_API(float, central_cylindrical_range_u_min)
+   NODE_SOCKET_API(float, central_cylindrical_range_u_max)
+   NODE_SOCKET_API(float, central_cylindrical_range_v_min)
+@@ -142,7 +149,7 @@ class Camera : public Node {
+ 
+   /* motion */
+   NODE_SOCKET_API_ARRAY(array<Transform>, motion)
+-  NODE_SOCKET_API(bool, use_perspective_motion)
++  // NODE_SOCKET_API(bool, use_perspective_motion)
+   NODE_SOCKET_API(float, fov_pre)
+   NODE_SOCKET_API(float, fov_post)
+ 
+diff --git a/intern/cycles/util/projection.h b/intern/cycles/util/projection.h
+index 2a43dba1bb6..c7355a9c16f 100644
+--- a/intern/cycles/util/projection.h
++++ b/intern/cycles/util/projection.h
+@@ -273,8 +273,9 @@ ccl_device_inline ProjectionTransform projection_perspective(const float fov,
+ 
+ ccl_device_inline ProjectionTransform projection_orthographic(const float znear, const float zfar)
+ {
+-  const Transform t = transform_scale(1.0f, 1.0f, 1.0f / (zfar - znear));
+-
++  // const Transform t = transform_scale(1.0f, 1.0f, 1.0f / (zfar - znear));
++  const Transform t = transform_scale(1.0f, 1.0f, 1.0f / (zfar - znear)) *
++                      transform_translate(0.0f, 0.0f, -znear);
+   return ProjectionTransform(t);
+ }
+ 
+diff --git a/scripts/startup/bl_ui/properties_data_camera.py b/scripts/startup/bl_ui/properties_data_camera.py
+index 8339051f212..c42d712767d 100644
+--- a/scripts/startup/bl_ui/properties_data_camera.py
++++ b/scripts/startup/bl_ui/properties_data_camera.py
+@@ -97,6 +97,21 @@ class DATA_PT_lens(CameraButtonsPanel, Panel):
+         elif cam.type == 'ORTHO':
+             col.prop(cam, "ortho_scale")
+ 
++        elif cam.type == 'ORTHODOX':
++            col.prop(cam, "ortho_scale")
++            engine = context.engine
++            if engine in {'CYCLES', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}:
++                sub = col.column()
++                sub.active = (cam.orthodox_object is None)
++                sub.prop(cam, "orthodox_distance", text="Distance")
++                col.prop(cam, "orthodox_factor", text="Orthodox Factor")
++                col.prop(cam, "orthodox_shift_x", text="Orthodox Shift X")
++                col.prop(cam, "orthodox_shift_y", text="Orthodox Shift Y")
++                col.prop(cam, "orthodox_object", text="Object")
++            if engine in {'CYCLES'}:
++                col.prop(cam, "orthodox_tilt_x", text="Orthodox Tilt X")
++                col.prop(cam, "orthodox_tilt_y", text="Orthodox Tilt Y")
++
+         elif cam.type == 'PANO':
+             engine = context.engine
+             if engine == 'CYCLES':
+diff --git a/source/blender/blenkernel/BKE_camera.h b/source/blender/blenkernel/BKE_camera.h
+index 9c6cfd3a16d..6d97c5331ac 100644
+--- a/source/blender/blenkernel/BKE_camera.h
++++ b/source/blender/blenkernel/BKE_camera.h
+@@ -46,6 +46,7 @@ float BKE_camera_sensor_size(int sensor_fit, float sensor_x, float sensor_y);
+ typedef struct CameraParams {
+   /* lens */
+   bool is_ortho;
++  int sub_type;
+   float lens;
+   float ortho_scale;
+   float zoom;
+@@ -70,6 +71,14 @@ typedef struct CameraParams {
+   float viewdy;
+   rctf viewplane;
+ 
++  /* set orthodox */
++  float orthodox_tilt_x;
++  float orthodox_tilt_y;
++  float orthodox_shift_x;
++  float orthodox_shift_y;
++  float orthodox_factor;
++  float orthodox_distance;
++
+   /* computed matrix */
+   float winmat[4][4];
+ } CameraParams;
+diff --git a/source/blender/blenkernel/intern/camera.cc b/source/blender/blenkernel/intern/camera.cc
+index 554f4eba30c..dfcff25e5a4 100644
+--- a/source/blender/blenkernel/intern/camera.cc
++++ b/source/blender/blenkernel/intern/camera.cc
+@@ -268,6 +268,23 @@ Camera *BKE_camera_add(Main *bmain, const char *name)
+   return cam;
+ }
+ 
++float BKE_camera_object_orthodox_distance(const Object *ob)
++{
++  const Camera *cam = (const Camera *)ob->data;
++  if (ob->type != OB_CAMERA) {
++    return 0.0f;
++  }
++  if (cam->orthodox_object) {
++    float view_dir[3], obj_dir[3];
++    normalize_v3_v3(view_dir, ob->object_to_world().ptr()[2]);
++    sub_v3_v3v3(obj_dir,
++                ob->object_to_world().location(),
++                cam->orthodox_object->object_to_world().location());
++    return fmax(fabsf(dot_v3v3(view_dir, obj_dir)), 1e-5f);
++  }
++  return fmax(cam->orthodox_distance, 1e-5f);
++}
++
+ float BKE_camera_object_dof_distance(const Object *ob)
+ {
+   const Camera *cam = (const Camera *)ob->data;
+@@ -337,6 +354,13 @@ void BKE_camera_params_init(CameraParams *params)
+   /* fallback for non camera objects */
+   params->clip_start = 0.1f;
+   params->clip_end = 100.0f;
++
++  params->orthodox_distance = 10.0f;
++  params->orthodox_factor = 0.0f;
++  params->orthodox_shift_x = 0.0f;
++  params->orthodox_shift_y = 0.0f;
++  params->orthodox_tilt_x = 0.0f;
++  params->orthodox_tilt_y = 0.0f;
+ }
+ 
+ void BKE_camera_params_from_object(CameraParams *params, const Object *cam_ob)
+@@ -349,8 +373,9 @@ void BKE_camera_params_from_object(CameraParams *params, const Object *cam_ob)
+     /* camera object */
+     const Camera *cam = static_cast<const Camera *>(cam_ob->data);
+ 
+-    if (cam->type == CAM_ORTHO) {
++    if (ELEM(cam->type, CAM_ORTHO, CAM_ORTHODOX)) {
+       params->is_ortho = true;
++      params->sub_type = cam->type;
+     }
+     params->lens = cam->lens;
+     params->ortho_scale = cam->ortho_scale;
+@@ -364,6 +389,14 @@ void BKE_camera_params_from_object(CameraParams *params, const Object *cam_ob)
+ 
+     params->clip_start = cam->clip_start;
+     params->clip_end = cam->clip_end;
++
++    /* set orthodox eevee */
++    params->orthodox_tilt_x = cam->orthodox_tilt_x;
++    params->orthodox_tilt_y = cam->orthodox_tilt_y;
++    params->orthodox_shift_x = cam->orthodox_shift_x;
++    params->orthodox_shift_y = cam->orthodox_shift_y;
++    params->orthodox_factor = cam->orthodox_factor;
++    params->orthodox_distance = BKE_camera_object_orthodox_distance(cam_ob);
+   }
+   else if (cam_ob->type == OB_LAMP) {
+     /* light object */
+@@ -502,13 +535,30 @@ void BKE_camera_params_compute_matrix(CameraParams *params)
+ 
+   /* compute projection matrix */
+   if (params->is_ortho) {
+-    orthographic_m4(params->winmat,
+-                    viewplane.xmin,
+-                    viewplane.xmax,
+-                    viewplane.ymin,
+-                    viewplane.ymax,
+-                    params->clip_start,
+-                    params->clip_end);
++    if (params->sub_type == CAM_ORTHODOX) {
++      orthodox_m4(params->winmat,
++                  viewplane.xmin,
++                  viewplane.xmax,
++                  viewplane.ymin,
++                  viewplane.ymax,
++                  params->clip_start,
++                  params->clip_end,
++                  params->orthodox_distance,
++                  params->orthodox_factor,
++                  params->orthodox_shift_x,
++                  params->orthodox_shift_y,
++                  params->orthodox_tilt_x,
++                  params->orthodox_tilt_y);
++    }
++    else {
++      orthographic_m4(params->winmat,
++                      viewplane.xmin,
++                      viewplane.xmax,
++                      viewplane.ymin,
++                      viewplane.ymax,
++                      params->clip_start,
++                      params->clip_end);
++    }
+   }
+   else {
+     perspective_m4(params->winmat,
+diff --git a/source/blender/blenlib/BLI_math_geom.h b/source/blender/blenlib/BLI_math_geom.h
+index 04e94a653bf..76bef8d8f13 100644
+--- a/source/blender/blenlib/BLI_math_geom.h
++++ b/source/blender/blenlib/BLI_math_geom.h
+@@ -1113,6 +1113,21 @@ void perspective_m4_fov(float mat[4][4],
+ /**
+  * Matches `glOrtho` result.
+  */
++
++void orthodox_m4(float mat[4][4],
++                 const float left,
++                 const float right,
++                 const float bottom,
++                 const float top,
++                 const float nearClip,
++                 const float farClip,
++                 const float orthodox_distance,
++                 const float orthodox_factor,
++                 const float orthodox_shift_x,
++                 const float orthodox_shift_y,
++                 const float orthodox_tilt_x,
++                 const float orthodox_tilt_y);
++
+ void orthographic_m4(float mat[4][4],
+                      float left,
+                      float right,
+diff --git a/source/blender/blenlib/intern/math_geom.cc b/source/blender/blenlib/intern/math_geom.cc
+index 0c3da4ca9b0..c1baadf9db5 100644
+--- a/source/blender/blenlib/intern/math_geom.cc
++++ b/source/blender/blenlib/intern/math_geom.cc
+@@ -4524,6 +4524,76 @@ void interp_barycentric_tri_v3(float data[3][3], float u, float v, float res[3])
+ 
+ /***************************** View & Projection *****************************/
+ 
++void orthodox_m4(float mat[4][4],
++                 const float left,
++                 const float right,
++                 const float bottom,
++                 const float top,
++                 const float nearClip,
++                 const float farClip,
++                 const float orthodox_distance,
++                 const float orthodox_factor,
++                 const float orthodox_shift_x,
++                 const float orthodox_shift_y,
++                 const float orthodox_tilt_x,
++                 const float orthodox_tilt_y)
++{
++  // orthodox eevee transform
++  float Zf = -farClip;
++  float Zn = -nearClip;
++  float Zd = -orthodox_distance;
++  float sx = -orthodox_shift_x;
++  float sy = -orthodox_shift_y;
++
++  float Xr = right + sx;
++  float Xl = left + sx;
++  float Yb = bottom + sy;
++  float Yt = top + sy;
++
++  float Kf = 1.0f - orthodox_factor;
++  float C3 = (1.0f - Kf) / Zd;
++  float D3 = Kf;
++
++  float Zq = 0.0f;
++  if (C3 != 0.0f) {
++    Zq = (0.01f - D3) / C3;
++    Zn = (C3 < 0.0f && Zn > Zq) ? Zq : Zn;
++    Zf = (C3 > 0.0f && Zf < Zq) ? Zq : Zf;
++  }
++
++  float C2 = (C3 * (Zf + Zn) + 2.0f * D3) / (Zf - Zn);
++  float D2 = (C3 * Zf + D3) - C2 * Zf;
++
++  float A0 = 2.0f / (Xr - Xl);
++  float C0 = -(Xr + Xl) / (Xr - Xl) * C3;
++  float D0 = -(Xr + Xl) / (Xr - Xl) * D3;
++  float B1 = 2.0f / (Yt - Yb);
++  float C1 = -(Yt + Yb) / (Yt - Yb) * C3;
++  float D1 = -(Yt + Yb) / (Yt - Yb) * D3;
++
++  unit_m4(mat);
++
++  mat[0][0] = A0;
++  mat[1][0] = 0.0f;
++  mat[2][0] = C0;
++  mat[3][0] = D0;
++
++  mat[0][1] = 0.0f;
++  mat[1][1] = B1;
++  mat[2][1] = C1;
++  mat[3][1] = D1;
++
++  mat[0][2] = 0.0f;
++  mat[1][2] = 0.0f;
++  mat[2][2] = C2;
++  mat[3][2] = D2;
++
++  mat[0][3] = 0.0f;
++  mat[1][3] = 0.0f;
++  mat[2][3] = C3;
++  mat[3][3] = D3;
++}
++
+ void orthographic_m4(float mat[4][4],
+                      const float left,
+                      const float right,
+diff --git a/source/blender/draw/engines/eevee_next/eevee_camera.cc b/source/blender/draw/engines/eevee_next/eevee_camera.cc
+index b4a38906bd9..c6a173dd680 100644
+--- a/source/blender/draw/engines/eevee_next/eevee_camera.cc
++++ b/source/blender/draw/engines/eevee_next/eevee_camera.cc
+@@ -42,6 +42,7 @@ void Camera::init()
+       case CAM_PERSP:
+         data.type = CAMERA_PERSP;
+         break;
++      case CAM_ORTHODOX:
+       case CAM_ORTHO:
+         data.type = CAMERA_ORTHO;
+         break;
+@@ -85,6 +86,7 @@ void Camera::init()
+ void Camera::sync()
+ {
+   const Object *camera_eval = inst_.camera_eval_object;
++  const ::Camera *cam_data = camera_eval ? (::Camera *)camera_eval->data : nullptr;
+ 
+   CameraData &data = data_;
+ 
+@@ -150,11 +152,18 @@ void Camera::sync()
+     BKE_camera_params_crop_viewplane(&params.viewplane, UNPACK2(display_extent), &film_rect);
+ 
+     RE_GetWindowMatrixWithOverscan(params.is_ortho,
++                                   params.sub_type,
+                                    params.clip_start,
+                                    params.clip_end,
+                                    params.viewplane,
+                                    overscan_,
+-                                   data.winmat.ptr());
++                                   data.winmat.ptr(),
++                                   params.orthodox_distance,
++                                   params.orthodox_factor,
++                                   params.orthodox_shift_x,
++                                   params.orthodox_shift_y,
++                                   params.orthodox_tilt_x,
++                                   params.orthodox_tilt_y);
+ 
+     if (params.lens == 0.0f) {
+       /* Can happen for the case of XR.
+@@ -173,12 +182,18 @@ void Camera::sync()
+     rctf viewplane = re->viewplane;
+     BKE_camera_params_crop_viewplane(&viewplane, UNPACK2(display_extent), &film_rect);
+ 
+-    RE_GetWindowMatrixWithOverscan(this->is_orthographic(),
+-                                   re->clip_start,
+-                                   re->clip_end,
+-                                   viewplane,
+-                                   overscan_,
+-                                   data.winmat.ptr());
++    // RE_GetWindowMatrixWithOverscan(this->is_orthographic(),
++    //                                re->clip_start,
++    //                                re->clip_end,
++    //                                viewplane,
++    //                                overscan_,
++    //                                data.winmat.ptr(),
++    //                                params.orthodox_distance,
++    //                                params.orthodox_factor,
++    //                                params.orthodox_shift_x,
++    //                                params.orthodox_shift_y,
++    //                                params.orthodox_tilt_x,
++    //                                params.orthodox_tilt_y);
+   }
+   else {
+     data.viewmat = float4x4::identity();
+@@ -186,6 +201,9 @@ void Camera::sync()
+     data.winmat = math::projection::perspective(-0.1f, 0.1f, -0.1f, 0.1f, 0.1f, 1.0f);
+   }
+ 
++  if (cam_data && cam_data->type == CAM_ORTHODOX) {
++  }
++
+   data.wininv = math::invert(data.winmat);
+   data.persmat = data.winmat * data.viewmat;
+   data.persinv = math::invert(data.persmat);
+@@ -195,6 +213,8 @@ void Camera::sync()
+     const ::Camera *cam = reinterpret_cast<const ::Camera *>(camera_eval->data);
+     data.clip_near = cam->clip_start;
+     data.clip_far = cam->clip_end;
++    data.orhodox_distance = cam->orthodox_distance;
++    data.orhodox_factor = cam->orthodox_factor;
+ #if 0 /* TODO(fclem): Make fisheye properties inside blender. */
+     data.fisheye_fov = cam->fisheye_fov;
+     data.fisheye_lens = cam->fisheye_lens;
+diff --git a/source/blender/draw/engines/eevee_next/eevee_shader_shared.hh b/source/blender/draw/engines/eevee_next/eevee_shader_shared.hh
+index 9e2da8dc714..de4f64f1b8f 100644
+--- a/source/blender/draw/engines/eevee_next/eevee_shader_shared.hh
++++ b/source/blender/draw/engines/eevee_next/eevee_shader_shared.hh
+@@ -338,6 +338,8 @@ struct CameraData {
+   /** Clipping distances. */
+   float clip_near;
+   float clip_far;
++  float orhodox_distance;
++  float orhodox_factor;
+   eCameraType type;
+   /** World space distance between view corners at unit distance from camera. */
+   float screen_diagonal_length;
+diff --git a/source/blender/draw/engines/overlay/overlay_next_camera.hh b/source/blender/draw/engines/overlay/overlay_next_camera.hh
+index c108ed11a43..1b1a51edbbb 100644
+--- a/source/blender/draw/engines/overlay/overlay_next_camera.hh
++++ b/source/blender/draw/engines/overlay/overlay_next_camera.hh
+@@ -660,7 +660,7 @@ class Cameras : Overlay {
+     translate[3][0] = bgpic->offset[0];
+     translate[3][1] = bgpic->offset[1];
+     translate[3][2] = cam_corners[0][2];
+-    if (cam->type == CAM_ORTHO) {
++    if (ELEM(cam->type, CAM_ORTHO, CAM_ORTHODOX)) {
+       translate[3].xy() *= cam->ortho_scale;
+     }
+     /* These lines are for keeping 2.80 behavior and could be removed to keep 2.79 behavior. */
+diff --git a/source/blender/draw/tests/draw_pass_test.cc b/source/blender/draw/tests/draw_pass_test.cc
+index 125400d6b51..db0c5eff835 100644
+--- a/source/blender/draw/tests/draw_pass_test.cc
++++ b/source/blender/draw/tests/draw_pass_test.cc
+@@ -290,6 +290,7 @@ static void test_draw_resource_id_gen()
+ 
+   float4x4 win_mat;
+   orthographic_m4(win_mat.ptr(), -1, 1, -1, 1, -1, 1);
++  // orthodox_m4(win_mat.ptr(), -1, 1, -1, 1, -1, 1, 1, 0, 0, 0, 0, 0);
+ 
+   View view("test_view");
+   view.sync(float4x4::identity(), win_mat);
+@@ -379,6 +380,7 @@ static void test_draw_visibility()
+ 
+   float4x4 win_mat;
+   orthographic_m4(win_mat.ptr(), -1, 1, -1, 1, -1, 1);
++  // orthodox_m4(win_mat.ptr(), -1, 1, -1, 1, -1, 1, 1, 0, 0, 0, 0, 0);
+ 
+   View view("test_view");
+   view.sync(float4x4::identity(), win_mat);
+diff --git a/source/blender/editors/grease_pencil/intern/grease_pencil_image_render.cc b/source/blender/editors/grease_pencil/intern/grease_pencil_image_render.cc
+index 44cd73ec99e..0cfd4eac6f5 100644
+--- a/source/blender/editors/grease_pencil/intern/grease_pencil_image_render.cc
++++ b/source/blender/editors/grease_pencil/intern/grease_pencil_image_render.cc
+@@ -141,6 +141,10 @@ void compute_view_matrices(const ViewContext &view_context,
+ {
+   rctf viewplane;
+   float clip_start, clip_end;
++  float orthodox_distance, orthodox_factor, orthodox_shift_x, orthodox_shift_y, orthodox_tilt_x,
++      orthodox_tilt_y;
++  int sub_type;
++
+   const bool is_ortho = ED_view3d_viewplane_get(view_context.depsgraph,
+                                                 view_context.v3d,
+                                                 view_context.rv3d,
+@@ -149,8 +153,14 @@ void compute_view_matrices(const ViewContext &view_context,
+                                                 &viewplane,
+                                                 &clip_start,
+                                                 &clip_end,
+-                                                nullptr);
+-
++                                                nullptr,
++                                                &sub_type,
++                                                &orthodox_distance,
++                                                &orthodox_factor,
++                                                &orthodox_shift_x,
++                                                &orthodox_shift_y,
++                                                &orthodox_tilt_x,
++                                                &orthodox_tilt_y);
+   /* Rescale `viewplane` to fit all strokes. */
+   const float2 view_min = float2(viewplane.xmin, viewplane.ymin);
+   const float2 view_max = float2(viewplane.xmax, viewplane.ymax);
+@@ -166,13 +176,30 @@ void compute_view_matrices(const ViewContext &view_context,
+ 
+   float4x4 winmat;
+   if (is_ortho) {
+-    orthographic_m4(winmat.ptr(),
+-                    viewplane.xmin,
+-                    viewplane.xmax,
+-                    viewplane.ymin,
+-                    viewplane.ymax,
+-                    -clip_end,
+-                    clip_end);
++    if (sub_type == 1 /*CAM_ORTHO*/) {
++      orthographic_m4(winmat.ptr(),
++                      viewplane.xmin,
++                      viewplane.xmax,
++                      viewplane.ymin,
++                      viewplane.ymax,
++                      -clip_end,
++                      clip_end);
++    }
++    else {
++      orthodox_m4(winmat.ptr(),
++                  viewplane.xmin,
++                  viewplane.xmax,
++                  viewplane.ymin,
++                  viewplane.ymax,
++                  -clip_end,
++                  clip_end,
++                  orthodox_distance,
++                  orthodox_factor,
++                  orthodox_shift_x,
++                  orthodox_shift_y,
++                  orthodox_tilt_x,
++                  orthodox_tilt_y);
++    }
+   }
+   else {
+     perspective_m4(winmat.ptr(),
+diff --git a/source/blender/editors/include/ED_view3d.hh b/source/blender/editors/include/ED_view3d.hh
+index cc0046ac078..ffd718baf4d 100644
+--- a/source/blender/editors/include/ED_view3d.hh
++++ b/source/blender/editors/include/ED_view3d.hh
+@@ -784,7 +784,14 @@ bool ED_view3d_viewplane_get(const Depsgraph *depsgraph,
+                              rctf *r_viewplane,
+                              float *r_clip_start,
+                              float *r_clip_end,
+-                             float *r_pixsize);
++                             float *r_pixsize,
++                             int *sub_type,
++                             float *orthodox_distance,
++                             float *orthodox_factor,
++                             float *orthodox_shift_x,
++                             float *orthodox_shift_y,
++                             float *orthodox_tilt_x,
++                             float *orthodox_tilt_y);
+ 
+ /**
+  * Use instead of: `GPU_polygon_offset(rv3d->dist, ...)` see bug #37727.
+diff --git a/source/blender/editors/space_view3d/view3d_draw.cc b/source/blender/editors/space_view3d/view3d_draw.cc
+index 5230d777621..438c0d64c2a 100644
+--- a/source/blender/editors/space_view3d/view3d_draw.cc
++++ b/source/blender/editors/space_view3d/view3d_draw.cc
+@@ -1260,6 +1260,9 @@ static const char *view3d_get_name(View3D *v3d, RegionView3D *rv3d)
+           else if (cam->type == CAM_ORTHO) {
+             name = IFACE_("Camera Orthographic");
+           }
++          else if (cam->type == CAM_ORTHODOX) {
++            name = IFACE_("Camera Orthodox");
++          }
+           else {
+             BLI_assert(cam->type == CAM_PANO);
+             name = IFACE_("Camera Panoramic");
+@@ -2040,17 +2043,51 @@ ImBuf *ED_view3d_draw_offscreen_imbuf(Depsgraph *depsgraph,
+   else {
+     rctf viewplane;
+     float clip_start, clipend;
++    float orthodox_distance, orthodox_factor, orthodox_shift_x, orthodox_shift_y, orthodox_tilt_x,
++        orthodox_tilt_y;
++    int sub_type;
+ 
+-    is_ortho = ED_view3d_viewplane_get(
+-        depsgraph, v3d, rv3d, sizex, sizey, &viewplane, &clip_start, &clipend, nullptr);
++    is_ortho = ED_view3d_viewplane_get(depsgraph,
++                                       v3d,
++                                       rv3d,
++                                       sizex,
++                                       sizey,
++                                       &viewplane,
++                                       &clip_start,
++                                       &clipend,
++                                       nullptr,
++                                       &sub_type,
++                                       &orthodox_distance,
++                                       &orthodox_factor,
++                                       &orthodox_shift_x,
++                                       &orthodox_shift_y,
++                                       &orthodox_tilt_x,
++                                       &orthodox_tilt_y);
+     if (is_ortho) {
+-      orthographic_m4(winmat,
+-                      viewplane.xmin,
+-                      viewplane.xmax,
+-                      viewplane.ymin,
+-                      viewplane.ymax,
+-                      -clipend,
+-                      clipend);
++      if (sub_type == CAM_ORTHODOX) {
++        orthodox_m4(winmat,
++                    viewplane.xmin,
++                    viewplane.xmax,
++                    viewplane.ymin,
++                    viewplane.ymax,
++                    -clipend,
++                    clipend,
++                    orthodox_distance,
++                    orthodox_factor,
++                    orthodox_shift_x,
++                    orthodox_shift_y,
++                    orthodox_tilt_x,
++                    orthodox_tilt_y);
++      }
++      else {
++        orthographic_m4(winmat,
++                        viewplane.xmin,
++                        viewplane.xmax,
++                        viewplane.ymin,
++                        viewplane.ymax,
++                        -clipend,
++                        clipend);
++      }
+     }
+     else {
+       perspective_m4(winmat,
+diff --git a/source/blender/editors/space_view3d/view3d_gizmo_camera.cc b/source/blender/editors/space_view3d/view3d_gizmo_camera.cc
+index 1e9802fba0b..3d7424343f0 100644
+--- a/source/blender/editors/space_view3d/view3d_gizmo_camera.cc
++++ b/source/blender/editors/space_view3d/view3d_gizmo_camera.cc
+@@ -167,7 +167,7 @@ static void WIDGETGROUP_camera_refresh(const bContext *C, wmGizmoGroup *gzgroup)
+   /* TODO: make focal length/ortho ob_scale_inv widget optional. */
+   const float aspx = float(scene->r.xsch) * scene->r.xasp;
+   const float aspy = float(scene->r.ysch) * scene->r.yasp;
+-  const bool is_ortho = (ca->type == CAM_ORTHO);
++  const bool is_ortho = ELEM(ca->type, CAM_ORTHO, CAM_ORTHODOX);
+   const int sensor_fit = BKE_camera_sensor_fit(ca->sensor_fit, aspx, aspy);
+   /* Important to use camera value, not calculated fit since 'AUTO' uses width always. */
+   const float sensor_size = BKE_camera_sensor_size(ca->sensor_fit, ca->sensor_x, ca->sensor_y);
+diff --git a/source/blender/editors/space_view3d/view3d_navigate_smoothview.cc b/source/blender/editors/space_view3d/view3d_navigate_smoothview.cc
+index 696da77b195..2f079b9bb09 100644
+--- a/source/blender/editors/space_view3d/view3d_navigate_smoothview.cc
++++ b/source/blender/editors/space_view3d/view3d_navigate_smoothview.cc
+@@ -330,10 +330,11 @@ void ED_view3d_smooth_view_ex(
+     if (sms.to_camera) {
+       /* Use orthographic if we move from an orthographic view to an orthographic camera. */
+       Object *ob_camera_eval = DEG_get_evaluated_object(depsgraph, sview->camera);
+-      rv3d->persp = ((rv3d->is_persp == false) && (ob_camera_eval->type == OB_CAMERA) &&
+-                     (static_cast<Camera *>(ob_camera_eval->data)->type == CAM_ORTHO)) ?
+-                        RV3D_ORTHO :
+-                        RV3D_PERSP;
++      rv3d->persp =
++          ((rv3d->is_persp == false) && (ob_camera_eval->type == OB_CAMERA) &&
++           ELEM(static_cast<Camera *>(ob_camera_eval->data)->type, CAM_ORTHO, CAM_ORTHODOX)) ?
++              RV3D_ORTHO :
++              RV3D_PERSP;
+     }
+ 
+     rv3d->rflag |= RV3D_NAVIGATING;
+diff --git a/source/blender/editors/space_view3d/view3d_utils.cc b/source/blender/editors/space_view3d/view3d_utils.cc
+index f88f8f59d93..743e8ed2170 100644
+--- a/source/blender/editors/space_view3d/view3d_utils.cc
++++ b/source/blender/editors/space_view3d/view3d_utils.cc
+@@ -188,7 +188,14 @@ bool ED_view3d_viewplane_get(const Depsgraph *depsgraph,
+                              rctf *r_viewplane,
+                              float *r_clip_start,
+                              float *r_clip_end,
+-                             float *r_pixsize)
++                             float *r_pixsize,
++                             int *sub_type,
++                             float *orthodox_distance,
++                             float *orthodox_factor,
++                             float *orthodox_shift_x,
++                             float *orthodox_shift_y,
++                             float *orthodox_tilt_x,
++                             float *orthodox_tilt_y)
+ {
+   CameraParams params;
+ 
+@@ -209,6 +216,34 @@ bool ED_view3d_viewplane_get(const Depsgraph *depsgraph,
+     *r_pixsize = params.viewdx;
+   }
+ 
++  if (sub_type) {
++    *sub_type = params.sub_type;
++  }
++
++  if (orthodox_distance) {
++    *orthodox_distance = params.orthodox_distance;
++  }
++
++  if (orthodox_factor) {
++    *orthodox_factor = params.orthodox_factor;
++  }
++
++  if (orthodox_shift_x) {
++    *orthodox_shift_x = params.orthodox_shift_x;
++  }
++
++  if (orthodox_shift_y) {
++    *orthodox_shift_y = params.orthodox_shift_y;
++  }
++
++  if (orthodox_tilt_x) {
++    *orthodox_tilt_x = params.orthodox_tilt_x;
++  }
++
++  if (orthodox_shift_y) {
++    *orthodox_tilt_y = params.orthodox_tilt_y;
++  }
++
+   return params.is_ortho;
+ }
+ 
+@@ -1676,7 +1711,7 @@ static bool view3d_camera_to_view_selected_impl(Main *bmain,
+     bool is_ortho_camera = false;
+ 
+     if ((camera_ob_eval->type == OB_CAMERA) &&
+-        (((Camera *)camera_ob_eval->data)->type == CAM_ORTHO))
++        ELEM(((Camera *)camera_ob_eval->data)->type, CAM_ORTHO, CAM_ORTHODOX))
+     {
+       ((Camera *)camera_ob->data)->ortho_scale = scale;
+       is_ortho_camera = true;
+diff --git a/source/blender/editors/space_view3d/view3d_view.cc b/source/blender/editors/space_view3d/view3d_view.cc
+index 59c06dc1bdc..79d81e28fbb 100644
+--- a/source/blender/editors/space_view3d/view3d_view.cc
++++ b/source/blender/editors/space_view3d/view3d_view.cc
+@@ -316,6 +316,9 @@ void view3d_winmatrix_set(const Depsgraph *depsgraph,
+   rctf full_viewplane;
+   float clipsta, clipend;
+   bool is_ortho;
++  float orthodox_distance, orthodox_factor, orthodox_shift_x, orthodox_shift_y, orthodox_tilt_x,
++      orthodox_tilt_y;
++  int sub_type;
+ 
+   is_ortho = ED_view3d_viewplane_get(depsgraph,
+                                      v3d,
+@@ -325,7 +328,14 @@ void view3d_winmatrix_set(const Depsgraph *depsgraph,
+                                      &full_viewplane,
+                                      &clipsta,
+                                      &clipend,
+-                                     nullptr);
++                                     nullptr,
++                                     &sub_type,
++                                     &orthodox_distance,
++                                     &orthodox_factor,
++                                     &orthodox_shift_x,
++                                     &orthodox_shift_y,
++                                     &orthodox_tilt_x,
++                                     &orthodox_tilt_y);
+   rv3d->is_persp = !is_ortho;
+ 
+ #if 0
+@@ -359,8 +369,24 @@ void view3d_winmatrix_set(const Depsgraph *depsgraph,
+   }
+ 
+   if (is_ortho) {
+-    GPU_matrix_ortho_set(
+-        viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
++    if (sub_type == 3) {
++      GPU_matrix_orthodox_set(viewplane.xmin,
++                              viewplane.xmax,
++                              viewplane.ymin,
++                              viewplane.ymax,
++                              clipsta,
++                              clipend,
++                              orthodox_distance,
++                              orthodox_factor,
++                              orthodox_shift_x,
++                              orthodox_shift_y,
++                              orthodox_tilt_x,
++                              orthodox_tilt_y);
++    }
++    else {
++      GPU_matrix_ortho_set(
++          viewplane.xmin, viewplane.xmax, viewplane.ymin, viewplane.ymax, clipsta, clipend);
++    }
+   }
+   else {
+     GPU_matrix_frustum_set(
+diff --git a/source/blender/gpu/GPU_matrix.hh b/source/blender/gpu/GPU_matrix.hh
+index 0eff7e2dfca..8277b26a6b4 100644
+--- a/source/blender/gpu/GPU_matrix.hh
++++ b/source/blender/gpu/GPU_matrix.hh
+@@ -88,6 +88,18 @@ void GPU_matrix_projection_set(const float m[4][4]);
+ 
+ void GPU_matrix_ortho_set(float left, float right, float bottom, float top, float near, float far);
+ void GPU_matrix_ortho_set_z(float near, float far);
++void GPU_matrix_orthodox_set(float left,
++                             float right,
++                             float bottom,
++                             float top,
++                             float near,
++                             float far,
++                             float orthodox_distance,
++                             float orthodox_factor,
++                             float orthodox_shift_x,
++                             float orthodox_shift_y,
++                             float orthodox_tilt_x,
++                             float orthodox_tilt_y);
+ 
+ void GPU_matrix_frustum_set(
+     float left, float right, float bottom, float top, float near, float far);
+diff --git a/source/blender/gpu/intern/gpu_matrix.cc b/source/blender/gpu/intern/gpu_matrix.cc
+index e7c1ff86cce..a835177ee47 100644
+--- a/source/blender/gpu/intern/gpu_matrix.cc
++++ b/source/blender/gpu/intern/gpu_matrix.cc
+@@ -306,6 +306,72 @@ static void mat4_ortho_set(
+   gpu_matrix_state_active_set_dirty(true);
+ }
+ 
++static void mat4_orthodox_set(float m[4][4],
++                              float left,
++                              float right,
++                              float bottom,
++                              float top,
++                              float near,
++                              float far,
++                              float orthodox_distance,
++                              float orthodox_factor,
++                              float orthodox_shift_x,
++                              float orthodox_shift_y,
++                              float orthodox_tilt_x,
++                              float orthodox_tilt_y)
++{
++  float Zf = -far;
++  float Zn = -near;
++  float Zd = -orthodox_distance;
++  float sx = -orthodox_shift_x;
++  float sy = -orthodox_shift_y;
++
++  float Xr = right + sx;
++  float Xl = left + sx;
++  float Yb = bottom + sy;
++  float Yt = top + sy;
++
++  float Kf = 1.0f - orthodox_factor;
++  float C3 = (1.0f - Kf) / Zd;
++  float D3 = Kf;
++
++  float Zq = 0.0f;
++  if (C3 != 0.0f) {
++    Zq = (0.01f - D3) / C3;
++    Zn = (C3 < 0.0f && Zn > Zq) ? Zq : Zn;
++    Zf = (C3 > 0.0f && Zf < Zq) ? Zq : Zf;
++  }
++
++  float C2 = (C3 * (Zf + Zn) + 2.0f * D3) / (Zf - Zn);
++  float D2 = (C3 * Zf + D3) - C2 * Zf;
++
++  float A0 = 2.0f / (Xr - Xl);
++  float C0 = -(Xr + Xl) / (Xr - Xl) * C3;
++  float D0 = -(Xr + Xl) / (Xr - Xl) * D3;
++  float B1 = 2.0f / (Yt - Yb);
++  float C1 = -(Yt + Yb) / (Yt - Yb) * C3;
++  float D1 = -(Yt + Yb) / (Yt - Yb) * D3;
++
++  m[0][0] = A0;
++  m[1][0] = 0.0f;
++  m[2][0] = C0;
++  m[3][0] = D0;
++  m[0][1] = 0.0f;
++  m[1][1] = B1;
++  m[2][1] = C1;
++  m[3][1] = D1;
++  m[0][2] = 0.0f;
++  m[1][2] = 0.0f;
++  m[2][2] = C2;
++  m[3][2] = D2;
++  m[0][3] = 0.0f;
++  m[1][3] = 0.0f;
++  m[2][3] = C3;
++  m[3][3] = D3;
++
++  gpu_matrix_state_active_set_dirty(true);
++}
++
+ static void mat4_frustum_set(
+     float m[4][4], float left, float right, float bottom, float top, float near, float far)
+ {
+@@ -420,6 +486,36 @@ void GPU_matrix_ortho_2d_set(float left, float right, float bottom, float top)
+   gpu_matrix_state_active_set_dirty(true);
+ }
+ 
++void GPU_matrix_orthodox_set(float left,
++                             float right,
++                             float bottom,
++                             float top,
++                             float near,
++                             float far,
++                             float orthodox_distance,
++                             float orthodox_factor,
++                             float orthodox_shift_x,
++                             float orthodox_shift_y,
++                             float orthodox_tilt_x,
++                             float orthodox_tilt_y)
++{
++  mat4_orthodox_set(Projection,
++                    left,
++                    right,
++                    bottom,
++                    top,
++                    near,
++                    far,
++                    orthodox_distance,
++                    orthodox_factor,
++                    orthodox_shift_x,
++                    orthodox_shift_y,
++                    orthodox_tilt_x,
++                    orthodox_tilt_y);
++  CHECKMAT(Projection);
++  gpu_matrix_state_active_set_dirty(true);
++}
++
+ void GPU_matrix_frustum_set(
+     float left, float right, float bottom, float top, float near, float far)
+ {
+diff --git a/source/blender/makesdna/DNA_camera_defaults.h b/source/blender/makesdna/DNA_camera_defaults.h
+index 7a6653f93a4..6578be80eec 100644
+--- a/source/blender/makesdna/DNA_camera_defaults.h
++++ b/source/blender/makesdna/DNA_camera_defaults.h
+@@ -59,6 +59,12 @@
+     .central_cylindrical_range_v_min = -1.0f,\
+     .central_cylindrical_range_v_max = 1.0f,\
+     .central_cylindrical_radius = 1.0f,\
++    .orthodox_distance = 10.0f,\
++    .orthodox_factor = 0.0f,\
++    .orthodox_shift_x = 0.0f,\
++    .orthodox_shift_y = 0.0f,\
++    .orthodox_tilt_x = 0.0f,\
++    .orthodox_tilt_y = 0.0f,\
+  \
+     .dof = _DNA_DEFAULT_CameraDOFSettings, \
+  \
+diff --git a/source/blender/makesdna/DNA_camera_types.h b/source/blender/makesdna/DNA_camera_types.h
+index 0f04311f08f..bf537624276 100644
+--- a/source/blender/makesdna/DNA_camera_types.h
++++ b/source/blender/makesdna/DNA_camera_types.h
+@@ -110,6 +110,15 @@ typedef struct Camera {
+   float central_cylindrical_radius;
+   float _pad2;
+ 
++  /* Orthodox camera properties. */
++  struct Object *orthodox_object;
++  float orthodox_distance;
++  float orthodox_factor;
++  float orthodox_tilt_x;
++  float orthodox_tilt_y;
++  float orthodox_shift_x;
++  float orthodox_shift_y;
++
+   /** Old animation system, deprecated for 2.5. */
+   struct Ipo *ipo DNA_DEPRECATED;
+ 
+@@ -134,6 +143,7 @@ enum {
+   CAM_PERSP = 0,
+   CAM_ORTHO = 1,
+   CAM_PANO = 2,
++  CAM_ORTHODOX = 3,
+ };
+ 
+ /* panorama_type */
+diff --git a/source/blender/makesrna/intern/rna_camera.cc b/source/blender/makesrna/intern/rna_camera.cc
+index 763d25683ae..9a69b77a842 100644
+--- a/source/blender/makesrna/intern/rna_camera.cc
++++ b/source/blender/makesrna/intern/rna_camera.cc
+@@ -578,6 +578,7 @@ void RNA_def_camera(BlenderRNA *brna)
+       {CAM_PERSP, "PERSP", 0, "Perspective", ""},
+       {CAM_ORTHO, "ORTHO", 0, "Orthographic", ""},
+       {CAM_PANO, "PANO", 0, "Panoramic", ""},
++      {CAM_ORTHODOX, "ORTHODOX", 0, "Orthodox", ""},
+       {0, nullptr, 0, nullptr, nullptr},
+   };
+   static const EnumPropertyItem prop_lens_unit_items[] = {
+@@ -965,6 +966,48 @@ void RNA_def_camera(BlenderRNA *brna)
+   RNA_def_property_ui_text(prop, "Cylinder Radius", "Radius of the virtual cylinder");
+   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
+ 
++  /* orthodox */
++  prop = RNA_def_property(srna, "orthodox_object", PROP_POINTER, PROP_NONE);
++  RNA_def_property_struct_type(prop, "Object");
++  RNA_def_property_pointer_sdna(prop, nullptr, "orthodox_object");
++  RNA_def_property_flag(prop, PROP_EDITABLE);
++  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
++  RNA_def_property_ui_text(
++      prop, "Orthodox Object", "Use this object to define the depth of orthodox");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_dependency_update");
++
++  prop = RNA_def_property(srna, "orthodox_distance", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_distance");
++  RNA_def_property_ui_range(prop, 0.01f, 10.0f, 0.1f, 3);
++  RNA_def_property_ui_text(prop, "Orthodox distance", "Orthodox distance");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
++  prop = RNA_def_property(srna, "orthodox_factor", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_factor");
++  RNA_def_property_ui_range(prop, -10.0f, 10.0f, 1.0f, 3);
++  RNA_def_property_ui_text(prop, "Orthodox factor", "Orthodox factor");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
++  prop = RNA_def_property(srna, "orthodox_shift_x", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_shift_x");
++  RNA_def_property_ui_text(prop, "Orthodox shift x", "Orthodox horizontal shift");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
++  prop = RNA_def_property(srna, "orthodox_shift_y", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_shift_y");
++  RNA_def_property_ui_text(prop, "Orthodox shift y", "Orthodox vertical shift");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
++  prop = RNA_def_property(srna, "orthodox_tilt_x", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_tilt_x");
++  RNA_def_property_ui_text(prop, "Orthodox tilt x", "Orthodox horizontal tilt");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
++  prop = RNA_def_property(srna, "orthodox_tilt_y", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "orthodox_tilt_y");
++  RNA_def_property_ui_text(prop, "Orthodox tilt y", "Orthodox vertical tilt");
++  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
++
+   /* pointers */
+   prop = RNA_def_property(srna, "dof", PROP_POINTER, PROP_NONE);
+   RNA_def_property_struct_type(prop, "CameraDOFSettings");
+diff --git a/source/blender/render/RE_pipeline.h b/source/blender/render/RE_pipeline.h
+index bbe14b4e225..d95d39b45cb 100644
+--- a/source/blender/render/RE_pipeline.h
++++ b/source/blender/render/RE_pipeline.h
+@@ -484,11 +484,18 @@ void RE_GetCameraModelMatrix(const struct Render *re,
+                              float r_modelmat[4][4]);
+ 
+ void RE_GetWindowMatrixWithOverscan(bool is_ortho,
++                                    int sub_type,
+                                     float clip_start,
+                                     float clip_end,
+                                     rctf viewplane,
+                                     float overscan,
+-                                    float r_winmat[4][4]);
++                                    float r_winmat[4][4],
++                                    float orthodox_distance,
++                                    float orthodox_factor,
++                                    float orthodox_shift_x,
++                                    float orthodox_shift_y,
++                                    float orthodox_tilt_x,
++                                    float orthodox_tilt_y);
+ 
+ struct Scene *RE_GetScene(struct Render *re);
+ void RE_SetScene(struct Render *re, struct Scene *sce);
+diff --git a/source/blender/render/intern/initrender.cc b/source/blender/render/intern/initrender.cc
+index a6b4e629c74..f772d6a3cef 100644
+--- a/source/blender/render/intern/initrender.cc
++++ b/source/blender/render/intern/initrender.cc
+@@ -184,8 +184,19 @@ void RE_GetCameraWindow(Render *re, const Object *camera, float r_winmat[4][4])
+ 
+ void RE_GetCameraWindowWithOverscan(const Render *re, float overscan, float r_winmat[4][4])
+ {
+-  RE_GetWindowMatrixWithOverscan(
+-      re->winmat[3][3] != 0.0f, re->clip_start, re->clip_end, re->viewplane, overscan, r_winmat);
++  RE_GetWindowMatrixWithOverscan(re->winmat[3][3] != 0.0f,
++                                 0,
++                                 re->clip_start,
++                                 re->clip_end,
++                                 re->viewplane,
++                                 overscan,
++                                 r_winmat,
++                                 1.0f,
++                                 0.0f,
++                                 0.0f,
++                                 0.0f,
++                                 0.0f,
++                                 0.0f);
+ }
+ 
+ void RE_GetCameraModelMatrix(const Render *re, const Object *camera, float r_modelmat[4][4])
+@@ -194,14 +205,22 @@ void RE_GetCameraModelMatrix(const Render *re, const Object *camera, float r_mod
+ }
+ 
+ void RE_GetWindowMatrixWithOverscan(bool is_ortho,
++                                    int sub_type,
+                                     float clip_start,
+                                     float clip_end,
+                                     rctf viewplane,
+                                     float overscan,
+-                                    float r_winmat[4][4])
++                                    float r_winmat[4][4],
++                                    float orthodox_distance,
++                                    float orthodox_factor,
++                                    float orthodox_shift_x,
++                                    float orthodox_shift_y,
++                                    float orthodox_tilt_x,
++                                    float orthodox_tilt_y)
+ {
+   CameraParams params;
+   params.is_ortho = is_ortho;
++  params.sub_type = sub_type;
+   params.clip_start = clip_start;
+   params.clip_end = clip_end;
+   params.viewplane = viewplane;
+@@ -212,6 +231,13 @@ void RE_GetWindowMatrixWithOverscan(bool is_ortho,
+   params.viewplane.xmax += overscan;
+   params.viewplane.ymin -= overscan;
+   params.viewplane.ymax += overscan;
++  params.orthodox_distance = orthodox_distance;
++  params.orthodox_factor = orthodox_factor;
++  params.orthodox_shift_x = orthodox_shift_x;
++  params.orthodox_shift_y = orthodox_shift_y;
++  params.orthodox_tilt_x = orthodox_tilt_x;
++  params.orthodox_tilt_y = orthodox_tilt_y;
++
+   BKE_camera_params_compute_matrix(&params);
+   copy_m4_m4(r_winmat, params.winmat);
+ }
+diff --git a/source/blender/windowmanager/intern/wm_subwindow.cc b/source/blender/windowmanager/intern/wm_subwindow.cc
+index f841436a844..88e3e26f5e0 100644
+--- a/source/blender/windowmanager/intern/wm_subwindow.cc
++++ b/source/blender/windowmanager/intern/wm_subwindow.cc
+@@ -122,6 +122,7 @@ void wmGetProjectionMatrix(float mat[4][4], const rcti *winrct)
+ {
+   int width = BLI_rcti_size_x(winrct) + 1;
+   int height = BLI_rcti_size_y(winrct) + 1;
++  // Orthodox vs Orthographics
+   orthographic_m4(mat,
+                   -GLA_PIXEL_OFS,
+                   float(width) - GLA_PIXEL_OFS,
+@@ -129,4 +130,17 @@ void wmGetProjectionMatrix(float mat[4][4], const rcti *winrct)
+                   float(height) - GLA_PIXEL_OFS,
+                   GPU_MATRIX_ORTHO_CLIP_NEAR_DEFAULT,
+                   GPU_MATRIX_ORTHO_CLIP_FAR_DEFAULT);
++  // orthodox_m4(mat,
++  // -GLA_PIXEL_OFS,
++  // float(width) - GLA_PIXEL_OFS,
++  // -GLA_PIXEL_OFS,
++  // float(height) - GLA_PIXEL_OFS,
++  // GPU_MATRIX_ORTHO_CLIP_NEAR_DEFAULT,
++  // GPU_MATRIX_ORTHO_CLIP_FAR_DEFAULT,
++  // 1.0,
++  // 0.0,
++  // 0.0,
++  // 0.0,
++  // 0.0,
++  // 0.0);
+ }
